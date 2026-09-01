@@ -17,8 +17,8 @@
 # Merging the branch is NOT enough. Run this before removing any worktree.
 #
 # Usage:
-#   scripts/fold_worktree.sh ../wt-foo            # dry run: list what would be copied
-#   scripts/fold_worktree.sh ../wt-foo --apply    # copy it into the trunk
+#   scripts/fold_worktree.sh worktrees/wt-foo            # dry run: what would be copied
+#   scripts/fold_worktree.sh worktrees/wt-foo --apply    # copy it into the trunk
 #
 # It copies only files MISSING from the trunk, or whose worktree mtime is newer than the
 # trunk copy's. It never deletes and never overwrites a trunk file with an older or
@@ -66,7 +66,7 @@ n_new=0; n_newer=0; n_same=0; n_tracked=0; bytes=0
 tmp=$(mktemp)
 for d in $RESULT_DIRS; do
   [ -d "$WT/$d" ] || continue
-  find "$WT/$d" -type f 2>/dev/null >> "$tmp"
+  command find "$WT/$d" -type f 2>/dev/null >> "$tmp"
 done
 
 while IFS= read -r src; do

@@ -69,7 +69,7 @@ for wt in $paths; do
     # tracked files come back through the merge; only untracked results are at risk
     if git -C "$wt" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then continue; fi
     if [ ! -e "$REPO/$rel" ]; then pending="$rel"; break; fi
-  done < <(find $targets -type f 2>/dev/null)
+  done < <(command find $targets -type f 2>/dev/null)
   [ -z "$pending" ] && continue
 
   {

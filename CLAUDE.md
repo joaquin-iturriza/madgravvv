@@ -81,6 +81,38 @@ sweep — never silently pick the conventional value.
 
 ---
 
+## What this repo inherits from `Foundational_Amplitudes`
+
+This project is built to FA's structure and rules, on purpose: the same person works on
+both, and a second research repo that organises itself differently costs more than it
+buys. FA's dev trunk is its **`jeanzay`** branch — `main` there is a stripped, generated
+publication artifact with no `CLAUDE.md` and no `.claude/`, so read `jeanzay`.
+
+What carried over, what was adapted, and what was deliberately left:
+
+| FA element | Here | Why |
+|---|---|---|
+| `run.py` Hydra entry, `config/` tree with `local/none.yaml` + `hydra.yaml` | **adopted** | identical |
+| `base_experiment.py` — `init_physics → init_data → init_model → train → evaluate → plot`, optimizer/scheduler/checkpoint boilerplate as private `_methods` | **adopted**, moved under `src/` | FA is flat-file; this is a pip-installable package because `main` is meant to be usable by the upstream author in his own tree |
+| one `experiment.py` | **adapted** → `experiments/{stage1_cae,stage2_margin,matched_far}.py` | the pipeline has genuinely separate stages, and `matched_far` is deliberately not a `BaseExperiment`: it is the only thing allowed to open `final_report()`, which is easier to audit when it is its own file |
+| `sweep/` DyHPO package | **adapted** — trial loop, search space, audit; **surrogate not yet ported** | every trial runs inside `FoldGuard.hpo()`, which FA does not need and C4 makes mandatory here. The sampler is a `Sampler` protocol so FA's `dyhpo_sampler.py` drops in without touching anything else |
+| `plots.py` / `base_plots.py` / `plot_style.py` | **adopted** → `plotting/{style,standard}.py` | same idea, smaller set. `save_figure` writes both formats in one call so the png+pdf rule holds by construction |
+| `scripts/publish_main.sh` + `PUBLIC_PATHS` | **adopted** | the allowlist is different (see the script); `main` is what gets pointed at in the contribution conversation |
+| `scripts/fold_worktree.sh` + `worktree_fold_guard.sh` | **adopted** | worse here than there: a lost `fold_audit.jsonl` does not just cost a re-run, it makes the numbers unciteable |
+| `scripts/wait_for_slurm.sh`, worktrees inside `worktrees/` | **adopted** | |
+| the guard hooks and three batched reviewers | **adopted, re-argued** | each hook's header states what it protects *here*; `hpo_guard` gained the C4 argument, `md_guard` the `ExperimentRecord` argument |
+| `.claude/hooks/test_guards.py` | **adopted** | the guards are load-bearing; one of them shipped broken and silent until tested |
+| "canonical run setup — the ONE source of truth" | **adopted** (below) | |
+| A/B protocol, waiting-on-jobs, one-CLAUDE.md, no-AI-attribution, honesty | **adopted** | |
+| FA's execution model (Claude runs *on* Jean Zay) | **replaced** with Fin_ML's local + sshfs model | CC-IN2P3 forbids AI sessions on their machines, so ground rule 0 differs from FA's ground rule 2. This is the one place the two references genuinely conflict, and the cluster's policy decides it |
+| FA's GPU-budget rule (>10 GPU-h → confirm) | **not adopted** | that is a Jean Zay allocation constraint. `lpnhe` on CC-IN2P3 has no hard GPU-hour budget, so ground rule 1 is Fin_ML's "be autonomous, stop only before something ridiculous" |
+| `mlflow_util.py` | **not ported** | FA runs it off by default (`use_mlflow: false`) and Fin_ML dropped it. `summary.json` plus `docs/results.tex` is the record here; a third store would be a fourth place for numbers to disagree |
+| FA's HPO search-space rules (the `lr*(t,D)` surface, 422 sweeps) | **not adopted** | measured on a Lorentz-equivariant transformer fitting amplitudes. The numbers do not transfer to a 250k-parameter conv autoencoder on spectrograms. The *practice* — keep the ranges in one place and narrow them from evidence — is adopted in `sweep/search_space.py`, with the ranges honestly labelled as priors |
+| μP as the default parametrization | **not yet** | Phase 5 proposes muP as a way to make width a cheap HPO axis. The plan itself flags that its tooling is transformer-centric and that at conv widths of 16–128 the effects it corrects are small, so a null result is acceptable. Not baked into the models |
+| `recipes/`, `IntrinsicDimDeep/`, `analysis/`, `attribution/`, `compare_models/`, `talks/`, `tools/` | **not applicable** | FA research directories with no analogue here |
+
+---
+
 ## The hard constraints
 
 These are the upstream author's design decisions. **Do not violate them.** A proposal
@@ -274,6 +306,33 @@ scripts/remote.sh sbatch jobs/job_stage2.sh \
 scripts/remote.sh sbatch jobs/job_seeds.sh exp_type=stage1 model.objective=masked
 ```
 
+### Canonical run setup — the ONE source of truth
+
+FA's rule, adopted verbatim in spirit: **when starting a new run or sweep, take values
+from this table and from `config/default.yaml`** — never lift them from an arbitrary
+older run's `config.yaml`. Those are historical artifacts and drift. If a run config
+disagrees with this table, the table wins.
+
+| Knob | Value | Kind |
+|---|---|---|
+| representation | `baseline` (256x128, log1p, per-tile min-max, 1 channel) | fixed — the upstream path; R1–R4 vary it deliberately |
+| `folds.n_folds` / `eval_fold` / `hpo_val_frac` | `2` / `1` / `0.25` | fixed — the upstream fold structure |
+| `param_budget_reference` / `enforce_param_budget` | `config/param_budget.yaml` / `true` | fixed |
+| stage-1 `training.lr` / `weight_decay` / `batchsize` | `1e-3` / `1e-5` / `64` | fixed — upstream values, the reproduction target |
+| stage-1 `scheduler` | `ReduceLROnPlateau(0.5, 5)` | fixed — upstream |
+| stage-2 `model.margin` / `margin_weight` | `3.0` / `2.0` | **open** — upstream values, and the primary Phase-5 HPO targets |
+| `training.iterations` | per-run | **open** — upstream was 10 epochs, best at epoch 9, so longer was never tested |
+| `model.objective` | `reconstruction` | run-design — `masked` is Phase 4.1 |
+| `data.source` | `generated` | fixed once Phase 2 lands; `cached` reproduces the fixed ~11k set |
+| `seed` / seeds per claim | `42` / **>= 3** | fixed — the record refuses a `keep` verdict below three |
+| `dtype` / `allow_tf32` / `fused_optimizer` | `float32` / `true` (no-op on V100) / `true` | fixed |
+| `plot` | `true` | fixed — `plot_guard` enforces it |
+| trials factor | `TrialsFactor(2, 2) = 4` | **open** — reducing the arm count is Phase 7.1, a FAR gain at fixed model |
+
+Search ranges live in `sweep/search_space.py` with their reasoning. They are **priors,
+not measured optima** — unlike FA's, which come from 422 converged sweeps. Narrow them
+as trials accumulate, and say in `docs/results.tex` what narrowed them.
+
 **Test tiers — iterate on the cheapest tier that answers the question.**
 
 | Tier | What | Wall-clock | Use for |
@@ -313,10 +372,12 @@ the gate invalidates every previously generated slide.
 | `src/madgrav_ml/eval/vt.py` | sensitive volume, sensitive distance, VT ratios |
 | `src/madgrav_ml/eval/calibration.py` | temperature scaling, ECE, reliability curves |
 | `src/madgrav_ml/report/record.py` | the per-experiment record; refuses to serialise an unsupportable claim |
+| `src/madgrav_ml/sweep/` | fold-aware HPO: `search_space.py` (ranges + reasoning), `runner.py` (every trial inside `FoldGuard.hpo()`, logged with its fold). FA's DyHPO surrogate drops into the `Sampler` protocol |
+| `src/madgrav_ml/plotting/` | `style.save_figure` (both formats, one call) and the standard figure set |
 | `config/` | Hydra tree: `default`, `model/`, `data/`, `representation/`, `local/`, `param_budget.yaml` |
-| `scripts/` | `remote.sh`, `wait_for_slurm.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py`, `fold_worktree.sh` |
+| `scripts/` | `remote.sh`, `wait_for_slurm.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py`, `fold_worktree.sh`, `publish_main.sh` |
 | `jobs/` | CC-IN2P3 SLURM scripts |
-| `tests/` | pytest suite (fold guard, FAR arithmetic, efficiency, budget) |
+| `tests/` | pytest suite (fold guard, FAR arithmetic, efficiency, budget, sweep leakage, plotting, vendored weights) |
 | `docs/results.tex` | the lab notebook; `docs/improvement-plan.md` (gitignored) the plan |
 
 **Reuse upstream rather than reimplementing:** `lr_cascade/vt_vs_mass.py`,
@@ -439,6 +500,11 @@ what it already cost.
 | `slurm_waiter_guard` | Stop | ending a turn with jobs queued and no background waiter. Checks via `scripts/remote.sh` and **fails open** on any ssh problem |
 | `block_memory`, `worktree_guard`, `commit_checkpoint`, `auto_push` | — | persistent memory, trunk-edit reminder, the commit checkpoint, the push |
 
+`python3 .claude/hooks/test_guards.py` is the self-test for all of the above, and it is
+not optional maintenance: the first version of `plot_guard` packed a multi-word command
+into one `read` variable, truncated it to a single token, and never fired once. It looked
+installed and did nothing. Run it after touching any guard.
+
 Each blocking guard has a deliberate, auditable escape hatch — `md_allowlist.txt`,
 `hpo_grid_allowlist.txt`, `plot_disable_allowlist.txt`, `figure_pair_ignore.txt`,
 `.no_waiter_needed`. Adding a line to one is a record that **the user approved this**;
@@ -470,6 +536,15 @@ the runtime check in `param_budget.py`.
 
 ## Conventions & gotchas
 
+- **What a run actually used: the audit trail wins, the config lies.** FA has the same
+  rule in the form "the recipe wins, `data.dataset` lies". Here: `config.yaml` records
+  `folds.segment_files` and the resolved defaults whether or not the run reached them,
+  so it will happily show a full segment list for a run that only ever read the HPO-train
+  subset. **`runs/<run>/fold_audit.jsonl` is the only authority on which segments a run
+  saw, in which phase, and at which trial.** Never state which data a run trained on, or
+  that the evaluation fold was untouched, from the config. Getting this backwards
+  silently inverts what "held out" means — which is the whole claim.
+
 - **Frequency and time are not interchangeable axes.** Tiles are `(channels,
   frequency, time)` = `(C, 256, 128)`. A transposed tile trains to a plausible loss and
   means nothing. This is also why anisotropic kernels (3×9) and anisotropic masks are
@@ -497,6 +572,12 @@ the runtime check in `param_budget.py`.
   `seed=None` is the non-repeating training mode.
 - **GPS-grouped folds, never random.** Adjacent segments share detector state; a random
   split makes the evaluation fold a near-copy of the training fold.
+- **Go easy on `find` and recursive `grep` over the tree.** This is an sshfs mount, so a
+  metadata-heavy walk pays network latency per entry — FA has the same rule for Lustre
+  and it bites harder here. Prefer `ls`, targeted `grep` and direct paths. Never walk
+  `data_cache/`, `.venv/` or `.reference/`; `runs/` grows without bound. (This is also
+  why `review_backlog.sh` caches its git counts: `gate` runs on every edit.)
+
 - **Guard against zero-variance and empty bins.** An efficiency bin with no injections
   is `nan`, not zero; a Wilson interval at k=0 is not zero-width. Both are handled —
   do not "simplify" them back to the normal approximation.
@@ -508,14 +589,24 @@ the runtime check in `param_budget.py`.
 Development-trunk + generated-canonical model, as in `.reference/Foundational_Amplitudes`'
 sibling projects.
 
+Remote: `origin https://github.com/joaquin-iturriza/madgravvv.git` (**public** — see
+rule 4 below before adding a file).
+
 **Branches** (you are on **`ccin2p3`** — the develop-and-run branch for this cluster)
 - **`ccin2p3`** — the development and working branch. Holds the whole project: core
   (`src/`, `config/`, `run.py`, `pyproject.toml`, `CLAUDE.md`, `.gitignore`) plus the
   dev-only dirs (`tests/`, `docs/`, `figures/`, `scripts/`, `jobs/`, `.claude/`), with
   the CC-IN2P3 job-script and path overrides baked in. Worktrees branch off it; the
   Stop hook auto-pushes it.
-- **`main`** — reserved for a minimal-core **generated build artifact**. Never edited by
-  hand; the auto-push hook excludes it.
+- **`main`** — the minimal-core **generated build artifact**, regenerated by
+  `scripts/publish_main.sh` from its `PUBLIC_PATHS` allowlist (`run.py`, `src/`,
+  `config/`, `tests/`, `pyproject.toml`, `README.md`). It is what gets pointed at in the
+  contribution conversation with the upstream author: the retrainable front end and the
+  evaluation harness, without our cluster paths, SLURM scripts, reviewer config or lab
+  notebook. `tests/` is included on purpose — it is what shows the fold discipline and
+  the C2 budget are enforced rather than asserted. **Never edit `main` by hand and never
+  merge `ccin2p3 -> main`**; to change what is public, edit the allowlist and republish.
+  The auto-push hook excludes it.
 
 **Working rules**
 1. **Do work on `ccin2p3`** (or a feature branch off it). **Finish a unit of work →
@@ -524,13 +615,32 @@ sibling projects.
    when asked". The Stop-checkpoint hook blocks a turn that ends with uncommitted
    changes, so the checkpoint is enforced. **Author every commit as the user** (ground
    rule #5).
-2. **Open a worktree for new work by default:**
-   `git worktree add ../wt-<feat> -b <feat> ccin2p3`, implement and verify there, merge
-   back, `git worktree remove`. Quick standalone edits on the trunk are fine (the guard
-   hook is advisory).
+2. **Open a worktree for new work by default, always INSIDE the repo:**
+   `git worktree add worktrees/wt-<feat> -b <feat> ccin2p3`, implement and verify there,
+   merge back, `git worktree remove` it. Never `../wt-<feat>` or any path outside the
+   project root — `worktrees/` is gitignored, so parallel experiments cannot clobber the
+   trunk checkout, and on this sshfs mount a sibling directory would land outside the
+   project on the cluster entirely. Quick standalone edits on the trunk are fine (the
+   guard hook is advisory).
+   **Merging brings back the CODE and nothing else.** `runs/` and `figures/` are
+   gitignored, so a worktree's run directories, predictions, checkpoints and — the one
+   that matters — its `fold_audit.jsonl` live only inside it and are destroyed by
+   `git worktree remove`. Fold first:
+   ```bash
+   bash scripts/fold_worktree.sh worktrees/wt-<feat>            # what would be copied
+   bash scripts/fold_worktree.sh worktrees/wt-<feat> --apply    # copy it
+   ```
+   `worktree_fold_guard.sh` blocks the removal until this has run.
 3. **Pushing is automatic** (Stop hook) once an `origin` remote exists — don't ask
    permission to push. The hook no-ops safely until then.
-4. **Never commit run artifacts, strain, checkpoints, or `.reference/`.** `.gitignore`
+4. **Visibility caveat.** `origin` is a single **public** GitHub repo, and a repo's
+   visibility covers *all* its branches. Stripping `main`'s tree via `PUBLIC_PATHS`
+   controls what a reader lands on, **not** what they can reach: `ccin2p3` is equally
+   public, so `jobs/`, `.claude/` and `docs/results.tex` are readable regardless. Anything
+   that must actually stay private has to be **gitignored** — as `docs/improvement-plan.md`
+   is, because it carries the collaboration strategy about the upstream author — or live
+   in a separate repo. Check this before adding a file, not after pushing it.
+5. **Never commit run artifacts, strain, checkpoints, or `.reference/`.** `.gitignore`
    covers them. Commit code, configs, `docs/`, curated `figures/`.
 
 (Ground rule #5 always holds: never attribute commits/PRs to Claude/AI.)

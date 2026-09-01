@@ -172,6 +172,7 @@ class Stage1CAEExperiment(BaseExperiment):
             x = data[0].to(self.device)
             errs.append(self.model.reconstruction_error(x, reduction="none").cpu().numpy())
         errs = np.concatenate(errs) if errs else np.array([])
+        self.noise_scores = errs   # consumed by plot(): the score-separation figure
         self.secondary_metrics = {
             "noise_score_mean": float(errs.mean()) if errs.size else float("nan"),
             "noise_score_std": float(errs.std()) if errs.size else float("nan"),

@@ -433,7 +433,19 @@ class BaseExperiment:
         raise NotImplementedError
 
     def plot(self):
-        pass
+        """Emit the standard figure set. Override to add more, never to replace it."""
+        from madgrav_ml.plotting import plot_standard
+
+        written = plot_standard(
+            self.cfg.run_dir,
+            train_loss=getattr(self, "train_loss", None),
+            val_loss=getattr(self, "val_loss", None),
+            lr=getattr(self, "train_lr", None),
+            noise_scores=getattr(self, "noise_scores", None),
+            signal_scores=getattr(self, "signal_scores", None),
+        )
+        for png, _pdf in written:
+            LOGGER.info(f"Wrote {png} (+ .pdf)")
 
     def _init_dataloader(self):
         raise NotImplementedError

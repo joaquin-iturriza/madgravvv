@@ -36,9 +36,18 @@ if [ ! -e "$MARKER" ]; then
   : > "$MARKER"; exit 0
 fi
 
-changed=$(find . \
-  \( -path ./.git -o -path ./runs -o -path ./data_cache -o -path ./.reference \
-     -o -path ./.venv -o -path ./figures/_scratch \) -prune -o \
+# `command find`, not `find`: on this machine the user's profile defines `find` as a
+# shell function wrapping bfs, and an exported function propagates into this hook. bfs
+# honours a different prune dialect, so the guard walked into .venv/ and .reference/ and
+# spat thousands of stat errors over sshfs. A hook must not depend on which find it gets.
+#
+# Directories are matched by NAME at any depth rather than by ./path, so a worktree's
+# copy of runs/ or .venv/ is pruned too. Pruning matters here for the reason CLAUDE.md
+# gives under Conventions: this is an sshfs mount, and .venv/ alone is tens of thousands
+# of files, each stat costing a network round trip.
+changed=$(command find . \
+  \( -type d \( -name .git -o -name runs -o -name data_cache -o -name .reference \
+       -o -name .venv -o -name worktrees -o -name __pycache__ \) \) -prune -o \
   -type f \( -name '*.png' -o -name '*.pdf' \) -newer "$MARKER" -print 2>/dev/null)
 [ -z "$changed" ] && { : > "$MARKER"; exit 0; }
 

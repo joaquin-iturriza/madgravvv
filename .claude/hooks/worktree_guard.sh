@@ -25,7 +25,7 @@ esac
 br=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null)
 [ "$br" = "ccin2p3" ] || exit 0
 
-msg="Worktree reminder: editing trunk file directly on ccin2p3. Per the git workflow, new experiment/feature work should go in a worktree (git worktree add ../wt-<feat> -b <feat> ccin2p3). If this is a quick standalone edit, proceed; otherwise create a worktree first."
+msg="Worktree reminder: editing trunk file directly on ccin2p3. Per the git workflow, new experiment/feature work should go in a worktree (git worktree add worktrees/wt-<feat> -b <feat> ccin2p3). If this is a quick standalone edit, proceed; otherwise create a worktree first."
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":%s}}\n' \
   "$(printf '%s' "$msg" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')"
 exit 0

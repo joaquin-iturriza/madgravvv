@@ -28,6 +28,9 @@ outputs/
 # --- reference repos (other projects, read-only context) ---
 .reference/
 
+# --- feature worktrees live INSIDE the repo (see CLAUDE.md, Git & worktree workflow) ---
+worktrees/
+
 # --- the improvement plan stays local ---
 # It is the working guide, and it also carries the collaboration strategy: how to
 # frame this work to the upstream author, what to say in first contact, which of his

@@ -18,7 +18,7 @@ Two things this provides that the upstream release does not:
 Everything is built to the upstream author's constraints, so that results are usable
 by him rather than merely favourable: a single-detector front end, a fixed parameter
 budget, a self-supervised stage 1, strict fold discipline, and no `ml4gw`. See
-`CLAUDE.md` for the operating manual and `docs/improvement-plan.md` for the plan.
+`CLAUDE.md` for the operating manual.
 
 ## Install
 

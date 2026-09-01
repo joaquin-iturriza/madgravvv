@@ -19,8 +19,11 @@ constraints. That is a design requirement, not politeness: see **The hard constr
 
 The plan this project executes is `docs/improvement-plan.md`. It defines the baseline,
 the constraints, the evaluation protocol and the work packages, and it is the
-authority when this file and it disagree. This file is the *operating manual*;
-`docs/results.tex` is the *lab notebook*.
+authority when this file and it disagree. **It is deliberately gitignored**: besides
+the technical plan it carries the collaboration strategy — how to frame this work to
+the upstream author, what to say in first contact — which is ours to read and not his,
+and this repository is public. Everything the code needs is restated here. This file
+is the *operating manual*; `docs/results.tex` is the *lab notebook*.
 
 ---
 
@@ -225,7 +228,7 @@ the Grad-CAM localizer with an explicit localization head.
 | SLURM logs | `runs/_logs/` (on the mount — tail locally, no ssh) |
 | Curated figures | `figures/` |
 | Formal notes | `docs/results.tex` |
-| The plan | `docs/improvement-plan.md` |
+| The plan | `docs/improvement-plan.md` (gitignored — local only, see above) |
 
 **Cluster — CC-IN2P3 (Lyon):**
 
@@ -314,7 +317,7 @@ the gate invalidates every previously generated slide.
 | `scripts/` | `remote.sh`, `wait_for_slurm.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py` |
 | `jobs/` | CC-IN2P3 SLURM scripts |
 | `tests/` | pytest suite (fold guard, FAR arithmetic, efficiency, budget) |
-| `docs/results.tex` | the lab notebook; `docs/improvement-plan.md` the plan |
+| `docs/results.tex` | the lab notebook; `docs/improvement-plan.md` (gitignored) the plan |
 
 **Reuse upstream rather than reimplementing:** `lr_cascade/vt_vs_mass.py`,
 `vt_absolute.py`, `vt_vs_far_panels.py`, `pastro_fgmc.py` already compute the reported

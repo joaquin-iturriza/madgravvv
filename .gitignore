@@ -28,6 +28,13 @@ outputs/
 # --- reference repos (other projects, read-only context) ---
 .reference/
 
+# --- the improvement plan stays local ---
+# It is the working guide, and it also carries the collaboration strategy: how to
+# frame this work to the upstream author, what to say in first contact, which of his
+# choices to challenge. That is ours to read and not his. The repo is public; the plan
+# is not. CLAUDE.md carries everything from it that the code needs.
+docs/improvement-plan.md
+
 # --- large images: keep curated figures under figures/ and docs/, ignore stray PNGs ---
 *.png
 !figures/**/*.png

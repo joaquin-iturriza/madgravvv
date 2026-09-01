@@ -54,6 +54,56 @@ inter-detector light-travel time, scored by the same selection object as the
 foreground. Folds are grouped by GPS time; the evaluation fold is opened once, at the
 end, and an audit trail records every access.
 
+\section{Baseline reproduction}
+\label{sec:repro}
+
+The distributed weights are calibration-locked to the environment they were trained in:
+the upstream \texttt{environment.yml} pins \texttt{torch}~1.12.1 with CUDA~11.2 and
+states that a different build can shift the GPU forward pass and break the frozen
+false-alarm-rate calibration. That build cannot be installed on the GPUs available to
+us, since the CUDA~11.2 wheels predate the driver stack on the partition we run on, so
+we use \texttt{torch}~2.6.0 built against CUDA~12.4. The upstream instruction for this
+case is to match the pinned build as closely as the hardware allows and re-validate the
+bundled recovery demonstration before quoting any false-alarm rate. We report that
+re-validation here.
+
+Running the bundled 256\,s segment containing GW190521 through the distributed weights
+on a Tesla~V100, we recover
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Quantity & Reference & Measured \\
+\midrule
+network significance $\sigma_\mathrm{net}$ & $\approx 7.7$ & $7.70$ \\
+high-mass specialist $P(\mathrm{signal})$  & $\approx 0.99$ & $0.994$ \\
+low-mass specialist $P(\mathrm{signal})$   & $\approx 0.95$ & $0.954$ \\
+verdict & \textsc{recovered} & \textsc{recovered} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+with per-detector significances $\sigma_{H_1}=5.54$ and $\sigma_{L_1}=5.35$, and a single
+window above the $\sigma_\mathrm{net}>4$ threshold across the 253 windows of the segment.
+The agreement is at the precision the reference values are quoted to.
+
+Two caveats bound what this establishes. First, agreement on one loud event constrains
+the forward pass in the regime where the signal is strong; a false-alarm rate is a
+property of the noise tail, and the demonstration deliberately quotes none, since a
+single short segment carries no time-slide livetime. Second, this validates the
+\emph{inference} path only. The second half of the reproduction requirement, that a
+reimplemented stage-1 and stage-2 training run recover score distributions and
+downstream efficiency matching the distributed weights, requires strain beyond the
+bundled segment and is not yet addressed.
+
+We also record a portability defect encountered here, since it affects any new user of
+the package. The repository commits nine symbolic links under \texttt{search\_mode/}
+that point into the author's own scratch storage. On any other machine these dangle,
+and \texttt{driver\_streams.py} calls \texttt{os.makedirs} with \texttt{exist\_ok=True}
+at import time, which does not suppress \texttt{FileExistsError} when the path exists as
+a dangling link rather than a directory. The documented demonstration therefore fails on
+a fresh clone, in a way that resembles a local environment fault.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

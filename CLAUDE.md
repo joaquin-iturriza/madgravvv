@@ -150,13 +150,41 @@ rather than dropping it and calling the saving an improvement.
 Conclusions and standing facts, not a job log. Numbers live in `docs/results.tex` and
 in each run's `summary.json`.
 
-**Status: Phase 1 infrastructure exists; no experiment has run.** The harness, the
-fold guard, the FAR/efficiency/VT metrics, the reimplemented model definitions and the
-cluster plumbing are in place. Nothing has been trained, and the section 3.4
-reproduction gate has not been passed.
+**Status: Phase 1 infrastructure exists. The reproduction gate is half passed.**
 
-**Facts established by reading the upstream release** (these change what to build, so
-they belong here rather than in results.tex):
+The section-3.4 gate has two halves. **The first is passed:** the bundled GW190521
+segment run through the distributed weights on our build gives
+`net sigma 7.70 / HM 0.994 / LM 0.954 / RECOVERED` against a reference of
+`~7.7 / ~0.99 / ~0.95 / RECOVERED` — agreement at the precision the reference is quoted
+to. That was not a formality: upstream pins torch 1.12.1 / CUDA 11.2 and calls the
+weights calibration-locked to it, and we run torch 2.6.0+cu124 because CUDA 11.2 has no
+wheel for this partition's GPUs. Re-run it with `jobs/job_demo_gate.sh` after any
+environment change.
+
+**Two things it does not establish, and they bound every number downstream.** Agreement
+on one loud event constrains the forward pass where the signal is strong; a FAR is a
+property of the noise *tail*, and the demo quotes none, because one short segment has no
+lag livetime. And it validates *inference* only — the gate's second half, that a
+reimplemented stage-1 + stage-2 training run matches the distributed weights' score
+distributions and downstream efficiency, needs strain beyond the bundled segment and is
+**not done**. Until it is, "our reimplementation reproduces the baseline" is not a claim
+we can make.
+
+Nothing has been trained. No strain has been fetched.
+
+**Facts established by reading and running the upstream release** (these change what to
+build, so they belong here rather than in results.tex):
+
+0. **The upstream tree does not run on a fresh clone.** It commits nine symlinks under
+   `search_mode/` pointing into the author's own scratch storage; on any other machine
+   they dangle, and `driver_streams.py` calls `os.makedirs(..., exist_ok=True)` at
+   import, which does *not* suppress `FileExistsError` on a dangling link. The demo dies
+   before it starts, looking like a broken local environment.
+   `scripts/vendor_reference.sh` provisions them. Two consequences: re-run that script
+   after any re-vendor, and remember that an empty `search_mode/streams_*` means "not
+   provisioned", **not** "the search found nothing".
+   This is also the natural first contact with the author — a one-line fix on his side,
+   blocking the first thing any new user tries, and entirely separate from any ML claim.
 
 1. **The CAE decoder is fed the encoder's max-pool indices** (`MaxUnpool2d`). That is
    spatial information routed *around* the bottleneck — a skip connection in all but
@@ -338,7 +366,7 @@ as trials accumulate, and say in `docs/results.tex` what narrowed them.
 | Tier | What | Wall-clock | Use for |
 |---|---|---|---|
 | smoke | `scripts/remote.sh .venv/bin/python -m pytest tests/` (CPU, login node) | ~30 s | any code change |
-| demo gate | `bash .reference/MADGRAV/demo/run_demo.sh` | ~2 min | the environment works; expects GW190521 at net σ ≈ 7.7, HM ≈ 0.99, LM ≈ 0.95, verdict `RECOVERED` |
+| demo gate | `scripts/remote.sh sbatch jobs/job_demo_gate.sh` | ~1 min | the environment still reproduces the frozen calibration. Measured `7.70 / 0.994 / 0.954 / RECOVERED`. **Re-run after any environment change** — it is the only thing standing between a torch upgrade and silently uncalibrated FARs |
 | short train | `jobs/job_stage1.sh training.iterations=2000` | ~15 min | does the loss move, is the shape right |
 | full train | `jobs/job_stage1.sh` | ~4–8 h | a candidate worth measuring |
 | seed array | `jobs/job_seeds.sh` | full-train × 3 in parallel | anything that will be quoted |

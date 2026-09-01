@@ -93,25 +93,42 @@ class Stage1CAEExperiment(BaseExperiment):
             raise ValueError(f"unknown data.source {self.cfg.data.source!r}")
 
     def _noise_provider(self, segments):
-        """Draw a whitened tile-length stretch of real noise from `segments`."""
-        from madgrav_ml.data.representation import notch_and_highpass, whiten
-        from madgrav_ml.data.strain import fetch_strain, load_reference_psd
+        """Draw a whitened tile-length stretch of real noise from `segments`.
 
-        cache = self.cfg.data.strain_cache
+        Reads from the local cache via `SegmentReader` — never from GWOSC. A random
+        four-second window is a cache miss under the `(ifo, start, end)` key, so calling
+        `fetch_strain` here would issue one archive request per training tile.
+        """
+        from madgrav_ml.data.representation import notch_and_highpass, whiten
+        from madgrav_ml.data.strain import SegmentReader, available_segments, load_reference_psd
+
         fs = self.spec.sample_rate
-        n = int(self.cfg.data.window_seconds * fs)
-        psds = {
-            ifo: load_reference_psd(p) for ifo, p in self.cfg.data.reference_psd.items()
-        }
+        cache = self.cfg.data.strain_cache
+        window = float(self.cfg.data.window_seconds)
+
+        have = available_segments(segments, cache)
+        missing = len(segments) - len(have)
+        if not have:
+            raise FileNotFoundError(
+                f"none of the {len(segments)} segments are cached under {cache}. "
+                f"Warm it first: scripts/remote.sh sbatch jobs/job_fetch_strain.sh"
+            )
+        if missing:
+            # Loud, not silent: training on a fraction of the fold you think you have is
+            # the kind of thing that turns into an unexplained result three weeks later.
+            LOGGER.warning(
+                f"{missing} of {len(segments)} segments are not cached and will not be "
+                f"sampled ({sum(s.duration for s in have) / 86400:.2f} d available)"
+            )
+
+        reader = SegmentReader(cache, capacity=int(self.cfg.data.get("reader_capacity", 2)))
+        psds = {ifo: load_reference_psd(p) for ifo, p in self.cfg.data.reference_psd.items()}
+        lines = {ifo: tuple(v) for ifo, v in self.cfg.data.notch_lines.items()}
 
         def provider(rng):
-            seg = segments[rng.integers(len(segments))]
-            if seg.duration <= self.cfg.data.window_seconds:
-                raise ValueError(f"segment {seg} shorter than the tile window")
-            t0 = rng.uniform(seg.start, seg.end - self.cfg.data.window_seconds)
-            raw = fetch_strain(seg.ifo, t0, t0 + self.cfg.data.window_seconds, cache, fs)
-            w = whiten(raw[:n], fs, reference_psd=psds[seg.ifo])
-            return notch_and_highpass(w, fs, lines=tuple(self.cfg.data.notch_lines[seg.ifo]))
+            seg, raw = reader.random_window(have, rng, window, fs)
+            w = whiten(raw, fs, reference_psd=psds[seg.ifo])
+            return notch_and_highpass(w, fs, lines=lines[seg.ifo])
 
         return provider
 

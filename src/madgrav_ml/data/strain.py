@@ -103,7 +103,7 @@ def load_reference_psd(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
     """
     with np.load(path) as z:
         keys = set(z.files)
-        fkey = next((k for k in ("freqs", "f", "frequency") if k in keys), None)
+        fkey = next((k for k in ("freq", "freqs", "f", "frequency") if k in keys), None)
         pkey = next((k for k in ("psd", "PSD", "power") if k in keys), None)
         if fkey is None or pkey is None:
             raise KeyError(f"{path}: expected frequency and psd arrays, found {sorted(keys)}")
@@ -225,3 +225,77 @@ def available_segments(segments, cache_dir: str | Path) -> list[Segment]:
     """
     cache_dir = Path(cache_dir)
     return [s for s in segments if cache_path(cache_dir, s.ifo, s.start, s.end).exists()]
+
+
+class SegmentReader:
+    """Bounded in-memory reader over the cached segments.
+
+    Training draws a four-second window from a random point in a random segment, tens of
+    thousands of times. Two ways to get that wrong, both of which this exists to prevent:
+
+    * Calling `fetch_strain` per window. The cache is keyed on `(ifo, start, end)`, so a
+      random four-second window is a cache MISS every time and becomes a GWOSC request
+      per training tile. That is not a slow path, it is a denial-of-service on a public
+      archive.
+    * Holding every segment in memory. A four-hour segment at 4096 Hz float32 is 236 MB;
+      the training fold is 14 GB, and a DataLoader with four workers would try to hold
+      four copies of whatever it touched.
+
+    So: read whole segments, keep at most `capacity` of them per instance, evict least
+    recently used. Upstream does the same thing in `driver_streams` for the same reason,
+    after an unbounded dict turned out to be a real host-memory leak.
+    """
+
+    def __init__(self, cache_dir: str | Path, capacity: int = 2):
+        from collections import OrderedDict
+
+        self.cache_dir = Path(cache_dir)
+        self.capacity = max(1, int(capacity))
+        self._store: "OrderedDict[tuple[str, int, int], np.ndarray]" = OrderedDict()
+
+    def segment(self, seg: Segment) -> np.ndarray:
+        key = (seg.ifo, int(seg.start), int(seg.end))
+        if key in self._store:
+            self._store.move_to_end(key)
+            return self._store[key]
+        path = cache_path(self.cache_dir, seg.ifo, seg.start, seg.end)
+        if not path.exists():
+            raise FileNotFoundError(
+                f"{path} is not cached. Warm the cache first: "
+                f"scripts/remote.sh sbatch jobs/job_fetch_strain.sh"
+            )
+        with np.load(path) as z:
+            arr = np.asarray(z["strain"], dtype=np.float32)
+        self._store[key] = arr
+        while len(self._store) > self.capacity:
+            self._store.popitem(last=False)
+        return arr
+
+    def window(self, seg: Segment, offset_s: float, duration_s: float,
+               sample_rate: int) -> np.ndarray:
+        """`duration_s` of strain starting `offset_s` into `seg`."""
+        arr = self.segment(seg)
+        i0 = int(round(offset_s * sample_rate))
+        n = int(round(duration_s * sample_rate))
+        if i0 < 0 or i0 + n > arr.size:
+            raise ValueError(
+                f"window [{offset_s:.1f}, {offset_s + duration_s:.1f}) s runs past "
+                f"segment {seg.ifo} {int(seg.start)} ({arr.size / sample_rate:.0f} s)"
+            )
+        return arr[i0:i0 + n]
+
+    def random_window(self, segments: Sequence[Segment], rng, duration_s: float,
+                      sample_rate: int) -> tuple[Segment, np.ndarray]:
+        """A uniformly-placed window from a segment drawn in proportion to its livetime.
+
+        Livetime-weighted, not uniform over segments: the O3a-56 durations run from 2.6 h
+        to 4 h, and drawing segments uniformly would oversample the short ones, quietly
+        weighting the noise model toward whatever detector state they happen to hold.
+        """
+        usable = [s for s in segments if s.duration > duration_s]
+        if not usable:
+            raise ValueError(f"no segment longer than the {duration_s} s window")
+        weights = np.array([s.duration - duration_s for s in usable], dtype=float)
+        seg = usable[int(rng.choice(len(usable), p=weights / weights.sum()))]
+        offset = float(rng.uniform(0.0, seg.duration - duration_s))
+        return seg, self.window(seg, offset, duration_s, sample_rate)

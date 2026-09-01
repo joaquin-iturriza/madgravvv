@@ -106,25 +106,71 @@ def load_reference_psd(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
         return np.asarray(z[fkey], dtype=float), np.asarray(z[pkey], dtype=float)
 
 
+CHUNK_SECONDS = 4096.0   # GWOSC serves 4096 s files; asking for one is one round trip
+FETCH_RETRIES = 4
+RETRY_BACKOFF_S = 15.0
+
+
+def cache_path(cache_dir: str | Path, ifo: str, start: float, end: float) -> Path:
+    return Path(cache_dir) / f"{ifo}_{int(start)}_{int(end)}.npz"
+
+
 def fetch_strain(ifo: str, start: float, end: float, cache_dir: str | Path,
-                 sample_rate: int = 4096) -> np.ndarray:
+                 sample_rate: int = 4096, chunk_seconds: float = CHUNK_SECONDS,
+                 retries: int = FETCH_RETRIES) -> np.ndarray:
     """Cached GWOSC fetch for one stretch of strain.
 
-    Reads `<cache_dir>/<ifo>_<start>_<end>.npz` when present, otherwise downloads via
-    gwpy and writes it. The cache is gitignored and is expected to be large; on
-    CC-IN2P3 it belongs under `/sps`, never under the tiny `/pbs/home`.
+    Reads `<cache_dir>/<ifo>_<start>_<end>.npz` when present, otherwise downloads and
+    writes it. The cache is gitignored and expected to be large; on CC-IN2P3 it belongs
+    under `/sps`, never the tiny `/pbs/home`.
+
+    Fetched in `chunk_seconds` pieces with retries, following the upstream
+    `search_mode/fetch_bg_par.py`, for two reasons that a single large request does not
+    give: GWOSC serves 4096 s files, so a chunk is one round trip rather than an
+    open-ended stitch, and a dropped connection three hours into a four-hour segment
+    costs one chunk instead of the segment.
+
+    The write is atomic — a temporary file renamed into place. Without that, an
+    interrupted fetch leaves a truncated `.npz` that the cache check treats as complete,
+    which then silently feeds a short array into training.
     """
+    import time
+
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    path = cache_dir / f"{ifo}_{int(start)}_{int(end)}.npz"
+    path = cache_path(cache_dir, ifo, start, end)
     if path.exists():
         with np.load(path) as z:
             return np.asarray(z["strain"], dtype=np.float32)
 
     from gwpy.timeseries import TimeSeries
 
-    ts = TimeSeries.fetch_open_data(ifo, start, end, sample_rate=sample_rate, cache=False)
-    strain = np.asarray(ts.value, dtype=np.float32)
-    np.savez_compressed(path, strain=strain, start=start, end=end,
+    chunks: list[np.ndarray] = []
+    t = float(start)
+    while t < end:
+        te = min(t + chunk_seconds, float(end))
+        for attempt in range(retries):
+            try:
+                ts = TimeSeries.fetch_open_data(ifo, t, te, sample_rate=sample_rate,
+                                                cache=False)
+                chunks.append(np.asarray(ts.value, dtype=np.float32))
+                break
+            except Exception:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(RETRY_BACKOFF_S * (attempt + 1))
+        t = te
+
+    strain = np.concatenate(chunks)
+    expected = int(round((end - start) * sample_rate))
+    if abs(strain.size - expected) > sample_rate:
+        raise ValueError(
+            f"{ifo} {int(start)}..{int(end)}: got {strain.size} samples, expected "
+            f"~{expected}. Refusing to cache a short segment — it would train silently."
+        )
+
+    tmp = path.with_suffix(".npz.partial")
+    np.savez_compressed(tmp, strain=strain, start=start, end=end,
                         sample_rate=sample_rate, ifo=ifo)
+    tmp.replace(path)
     return strain

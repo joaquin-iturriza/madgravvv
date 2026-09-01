@@ -29,7 +29,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
-from madgrav_ml.data.strain import fetch_strain, load_segments  # noqa: E402
+from madgrav_ml.data.strain import cache_path, fetch_strain, load_segments  # noqa: E402
 from madgrav_ml.eval.folds import FoldGuard, Split  # noqa: E402
 
 DEFAULT_SEGMENTS = REPO / ".reference/MADGRAV/search_mode/o3a_bg_segments_56.json"
@@ -54,6 +54,10 @@ def main() -> int:
     ap.add_argument("--sample-rate", type=int, default=4096)
     ap.add_argument("--limit", type=int, default=None,
                     help="fetch at most N segment-detector pairs (a smaller slice still)")
+    ap.add_argument("--jobs", type=int, default=4,
+                    help="concurrent fetches. The work is network-bound, so threads are "
+                         "the right tool. Kept modest by default: GWOSC is a shared "
+                         "public service and this is not the only thing using it.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -92,8 +96,7 @@ def main() -> int:
     print(f"to fetch     : {len(wanted)} segment-detector pairs, {live / 86400:.2f} d")
     print(f"estimate     : {human(est)} uncompressed float32 at {args.sample_rate} Hz")
 
-    have = [s for s in wanted
-            if (args.cache / f"{s.ifo}_{int(s.start)}_{int(s.end)}.npz").exists()]
+    have = [s for s in wanted if cache_path(args.cache, s.ifo, s.start, s.end).exists()]
     print(f"already cached: {len(have)}/{len(wanted)}")
     todo = [s for s in wanted if s not in have]
     if args.dry_run:
@@ -106,21 +109,32 @@ def main() -> int:
     args.cache.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     failures = []
-    for i, s in enumerate(todo, 1):
-        tag = f"[{i}/{len(todo)}] {s.ifo} {int(s.start)}"
-        try:
-            arr = fetch_strain(s.ifo, s.start, s.end, args.cache, args.sample_rate)
-            el = time.time() - t0
-            rate = i / el if el else 0
-            eta = (len(todo) - i) / rate if rate else 0
-            print(f"{tag}  {arr.size:,} samples  "
-                  f"[{el / 60:.1f} min elapsed, ~{eta / 60:.0f} min left]", flush=True)
-        except Exception as exc:
-            # One bad segment must not lose the whole fetch: GWOSC drops connections, and
-            # a partial cache is resumable while a crashed script at segment 40 of 58 is
-            # just lost time. Failures are reported at the end, not swallowed.
-            failures.append((s, f"{type(exc).__name__}: {exc}"))
-            print(f"{tag}  FAILED {type(exc).__name__}: {exc}", flush=True)
+    done = 0
+
+    def one(seg):
+        return seg, fetch_strain(seg.ifo, seg.start, seg.end, args.cache, args.sample_rate)
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    print(f"fetching with {args.jobs} concurrent workers\n")
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = {pool.submit(one, s): s for s in todo}
+        for fut in as_completed(futures):
+            seg = futures[fut]
+            done += 1
+            tag = f"[{done}/{len(todo)}] {seg.ifo} {int(seg.start)}"
+            try:
+                _, arr = fut.result()
+                el = time.time() - t0
+                eta = (len(todo) - done) * el / done if done else 0
+                print(f"{tag}  {arr.size:,} samples  "
+                      f"[{el / 60:.1f} min elapsed, ~{eta / 60:.0f} min left]", flush=True)
+            except Exception as exc:
+                # One bad segment must not lose the whole fetch: GWOSC drops connections,
+                # and a partial cache is resumable while a crash at segment 40 of 58 is
+                # just lost time. Failures are reported at the end, never swallowed.
+                failures.append((seg, f"{type(exc).__name__}: {exc}"))
+                print(f"{tag}  FAILED {type(exc).__name__}: {exc}", flush=True)
 
     print(f"\ndone in {(time.time() - t0) / 60:.1f} min")
     if failures:

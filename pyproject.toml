@@ -31,6 +31,10 @@ gw = [
   "gwosc>=0.7",
   "gwdatafind>=1.1",
   "lalsuite>=7.0",
+  # Needed by the upstream tree, not by us: improved/improved_pipeline.py (which the
+  # demo path imports) and lr_cascade/* (the VT and p_astro scripts we are told to
+  # reuse rather than reimplement) both use it.
+  "scikit-learn>=1.3",
 ]
 dev = [
   "pytest>=7.0",

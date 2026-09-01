@@ -40,5 +40,41 @@ vendor ".reference/Foundational_Amplitudes" \
        "${FA_URL:-https://github.com/joaquin-iturriza/Foundational_Amplitudes.git}" \
        "${FA_BRANCH:-jeanzay}"
 
+# --- provision: replace the upstream tree's dangling scratch symlinks -------------
+#
+# UPSTREAM PORTABILITY BUG, worth reporting back. MADGRAV commits nine symlinks under
+# search_mode/ that point at the author's own scratch storage:
+#
+#     search_mode/streams_o4a -> /scratch/fs201312/gi54209/streams_o4a_evt56
+#     search_mode/strain      -> /scratch/fs201312/gi54209/strain_o3a_56       (+ 7 more)
+#
+# On any machine that is not his they are dangling. That breaks `demo/run_demo.sh` on a
+# fresh clone, because driver_streams.py does `os.makedirs(OUT, exist_ok=True)` at import
+# and `exist_ok=True` does NOT swallow FileExistsError when the path exists as a dangling
+# symlink rather than a directory. So the documented two-minute demo cannot run anywhere
+# except the author's machine, and the failure looks like a bug in your environment.
+#
+# We replace them with real directories. They are run-output and scratch locations, not
+# data we need: the demo reads its strain from demo/strain via SM_STRAIN.
+#
+# NOTE for a full search run (not the demo): an empty directory here means "not
+# provisioned", not "no data found". If a search comes back with nothing, check this
+# first rather than concluding the search found nothing.
+provision_dangling_symlinks() {
+  local root="$1" n=0
+  [ -d "$root" ] || return 0
+  while IFS= read -r link; do
+    [ -e "$link" ] && continue          # resolves fine, leave it alone
+    printf '  provisioning %s (was -> %s)\n' "${link#"$root"/}" "$(readlink "$link")"
+    rm -f "$link" && mkdir -p "$link" && n=$((n+1))
+  done < <(command find "$root" -type l 2>/dev/null)
+  [ "$n" -gt 0 ] && echo "  replaced $n dangling symlink(s) with real directories"
+  return 0
+}
+
+echo
+echo "provisioning ${1:-.reference/MADGRAV}:"
+provision_dangling_symlinks "${1:-.reference/MADGRAV}"
+
 echo
 echo "vendored. Next:  python scripts/measure_param_budget.py"

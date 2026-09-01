@@ -133,12 +133,24 @@ class Stage1CAEExperiment(BaseExperiment):
         return provider
 
     def _init_dataloader(self):
-        from torch.utils.data import DataLoader
+        from torch.utils.data import DataLoader, IterableDataset
 
         t = self.cfg.training
-        kw = dict(batch_size=t.batchsize, num_workers=t.num_workers, pin_memory=True)
-        self.train_loader = DataLoader(self.train_set, **kw)
-        self.val_loader = DataLoader(self.val_set, **kw)
+        iterable = isinstance(self.train_set, IterableDataset)
+        # A map-style bank MUST be shuffled: it is written segment by segment, so
+        # consecutive tiles share a detector and an hour of detector state, and an
+        # unshuffled epoch would feed the model one segment at a time. An IterableDataset
+        # is already drawing at random and cannot take shuffle=.
+        kw = dict(batch_size=t.batchsize, pin_memory=True,
+                  num_workers=(t.num_workers if iterable else 0))
+        self.train_loader = DataLoader(self.train_set, shuffle=not iterable, **kw)
+        self.val_loader = DataLoader(self.val_set, shuffle=False, **kw)
+        if not iterable:
+            LOGGER.info(
+                f"bank: {len(self.train_set):,} train / {len(self.val_set):,} val tiles "
+                f"({self.train_set.size_gb:.2f} GB in memory, num_workers=0 — reading a "
+                f"bank is an array slice)"
+            )
 
     def init_model(self):
         self.model = BaselineCAE(

@@ -36,39 +36,61 @@ class TileBatch:
 
 
 class CachedTileDataset(Dataset):
-    """Tiles precomputed to disk — the baseline's fixed ~11k set.
+    """Tiles precomputed to disk — a bank built by `scripts/build_tile_cache.py`.
 
-    Expects an `.npz` per shard with arrays `x` (N, C, F, T), `y` (N,) and `source`
-    (N,). Kept deliberately dumb: caching is a performance decision, and anything
-    clever here would make the on-the-fly comparison unfair.
+    Loaded eagerly into one array. That is a deliberate choice over lazy per-shard
+    loading: a 20k-tile bank at 1x256x128 float32 is 2.6 GB, which fits comfortably, and
+    the lazy version has a trap. With `num_workers > 0` each DataLoader worker gets its
+    own copy of the dataset object and lazily loads whatever shards it touches — and
+    under shuffling every worker touches every shard, so the memory is (bank size) x
+    (workers). Eight workers over this bank would be 21 GB to read data that needs no
+    per-item work at all.
+
+    So: load once, and use `num_workers=0`. Reading from a bank is an array slice; there
+    is nothing to parallelise.
     """
 
-    def __init__(self, paths: list[str | Path]):
+    def __init__(self, paths, max_gb: float = 8.0):
+        """`paths` is a list of shard files, or a glob like
+        `data_cache/tiles/train/*.npz`. A glob because a bank is written as however many
+        shards it needs, and a config enumerating them goes stale the moment the bank is
+        rebuilt at a different size."""
+        import glob as _glob
+
+        if isinstance(paths, (str, Path)):
+            paths = sorted(_glob.glob(str(paths)))
         self.paths = [Path(p) for p in paths]
         if not self.paths:
-            raise ValueError("CachedTileDataset needs at least one shard")
-        self._index: list[tuple[int, int]] = []
-        self._shards: dict[int, dict] = {}
-        for si, p in enumerate(self.paths):
+            raise ValueError(
+                "CachedTileDataset got no shards. Build the bank first: "
+                "scripts/remote.sh sbatch jobs/job_build_tiles.sh"
+            )
+
+        xs, ys = [], []
+        for p in self.paths:
             with np.load(p) as z:
-                n = z["x"].shape[0]
-            self._index.extend((si, i) for i in range(n))
+                xs.append(np.asarray(z["x"], dtype=np.float32))
+                ys.append(np.asarray(z["y"], dtype=np.float32) if "y" in z
+                          else np.full(len(xs[-1]), np.nan, dtype=np.float32))
+        self.x = np.concatenate(xs)
+        self.y = np.concatenate(ys)
+        gb = self.x.nbytes / 1e9
+        if gb > max_gb:
+            raise MemoryError(
+                f"bank is {gb:.1f} GB, over the {max_gb} GB guard. Either raise max_gb "
+                f"deliberately or build a smaller bank — silently swapping is worse than "
+                f"failing here."
+            )
+
+    @property
+    def size_gb(self) -> float:
+        return self.x.nbytes / 1e9
 
     def __len__(self) -> int:
-        return len(self._index)
-
-    def _shard(self, si: int) -> dict:
-        if si not in self._shards:
-            with np.load(self.paths[si]) as z:
-                self._shards[si] = {k: z[k] for k in ("x", "y", "source") if k in z}
-        return self._shards[si]
+        return len(self.x)
 
     def __getitem__(self, i: int):
-        si, j = self._index[i]
-        s = self._shard(si)
-        x = torch.from_numpy(np.asarray(s["x"][j], dtype=np.float32))
-        y = torch.tensor(float(s["y"][j])) if "y" in s else torch.tensor(float("nan"))
-        return x, y
+        return torch.from_numpy(self.x[i]), torch.tensor(float(self.y[i]))
 
 
 class GeneratedTileDataset(IterableDataset):

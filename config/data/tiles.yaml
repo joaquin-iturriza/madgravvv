@@ -1,0 +1,14 @@
+# @package data
+# Train from a precomputed tile bank (scripts/build_tile_cache.py).
+#
+# This is the default for iteration. `source: generated` is a supported path, not a
+# blocked one -- a tile costs ~277 ms, so on-the-fly is ~0.55 s/batch at 32 workers. The
+# bank wins because a multi-epoch run would otherwise recompute the identical transform
+# on the identical window every epoch.
+defaults:
+  - o3a
+  - _self_
+
+source: cached
+train_shards: data_cache/tiles/train/*.npz
+val_shards: data_cache/tiles/val/*.npz

@@ -18,6 +18,10 @@ import numpy as np
 from ..eval.folds import Segment
 
 DQ_FLAGS = ("DATA", "CBC_CAT1", "CBC_CAT2")
+
+
+class StrainUnavailable(RuntimeError):
+    """GWOSC publishes no strain for this detector over this span. Not retryable."""
 RUNS = ("O3a", "O3b", "O4a", "O4b")
 
 
@@ -168,7 +172,16 @@ def fetch_strain(ifo: str, start: float, end: float, cache_dir: str | Path,
                                                 cache=False)
                 chunks.append(np.asarray(ts.value, dtype=np.float32))
                 break
-            except Exception:
+            except Exception as exc:
+                # "no dataset covering" is a statement about what GWOSC publishes, not a
+                # transient failure. Retrying it five times with minute-scale backoff
+                # burns ~9 minutes to arrive at the same answer, which is how the two
+                # unavailable O3a spans cost an extra quarter hour.
+                if "Cannot find a GWOSC dataset" in str(exc):
+                    raise StrainUnavailable(
+                        f"GWOSC publishes no {ifo} data covering "
+                        f"[{int(start)}, {int(end)}) at {sample_rate} Hz"
+                    ) from exc
                 if attempt == retries - 1:
                     raise
                 wait = RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)]
@@ -192,3 +205,23 @@ def fetch_strain(ifo: str, start: float, end: float, cache_dir: str | Path,
                         sample_rate=sample_rate, ifo=ifo)
     tmp.replace(path)
     return strain
+
+
+def available_segments(segments, cache_dir: str | Path) -> list[Segment]:
+    """Filter a segment list down to what is actually cached.
+
+    This exists because of a real gap in the O3a-56 set: GWOSC publishes no L1 data
+    covering [1242308162, 1242322562) and no H1 data covering [1245948743, 1245963143),
+    though in both cases the *partner* detector is available. The upstream list calls
+    those spans coincident; the archive disagrees.
+
+    The consequence is asymmetric, which is why this matters. Single-detector work
+    (constraint C1 makes it the primary target) is unaffected -- the partner detector's
+    data is perfectly good noise. But **coincident** livetime is not: those two spans
+    contribute nothing, and computing background livetime from the nominal list would
+    overstate it by eight hours. An overstated T_bg *understates* the FAR, which makes
+    every result look better than it is. Always take coincident livetime from this, not
+    from `load_segments`.
+    """
+    cache_dir = Path(cache_dir)
+    return [s for s in segments if cache_path(cache_dir, s.ifo, s.start, s.end).exists()]

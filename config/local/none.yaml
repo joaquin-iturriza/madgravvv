@@ -1,0 +1,3 @@
+# @package _global_
+# No-op default. Machine-specific overrides go in a sibling file (gitignored) and are
+# selected with `local=<name>`.

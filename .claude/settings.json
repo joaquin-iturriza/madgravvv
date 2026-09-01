@@ -1,0 +1,25 @@
+{
+  "autoMemoryEnabled": false,
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/commit_checkpoint.sh" },
+          { "type": "command", "command": "bash .claude/hooks/auto_push.sh" },
+          { "type": "command", "command": "bash .claude/hooks/review_backlog.sh check || true" }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/block_memory.sh" },
+          { "type": "command", "command": "bash .claude/hooks/constraint_guard.sh || true" },
+          { "type": "command", "command": "bash .claude/hooks/worktree_guard.sh" },
+          { "type": "command", "command": "bash .claude/hooks/review_backlog.sh gate || true" }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+# Keep Hydra from creating directories, changing the working directory, or hijacking
+# the logger — the harness owns all three (run-dir contract in CLAUDE.md).
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+  hydra_logging:
+    version: 1
+    root: null
+    disable_existing_loggers: false
+  job_logging:
+    version: 1
+    root: null
+    disable_existing_loggers: false

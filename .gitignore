@@ -1,0 +1,69 @@
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# --- notebooks ---
+.ipynb_checkpoints/
+
+# --- strain data & derived tile caches (huge, refetchable from GWOSC) ---
+data_cache/
+data/raw/
+data/processed/
+
+# --- run artifacts (large, regenerable; durable record = docs/results.tex + summary.json) ---
+runs/
+outputs/
+*.pt
+*.pt.gz
+*.pkl
+*.hdf5
+*.h5
+
+# --- reference repos (other projects, read-only context) ---
+.reference/
+
+# --- large images: keep curated figures under figures/ and docs/, ignore stray PNGs ---
+*.png
+!figures/**/*.png
+!docs/**/*.png
+
+# --- Hydra / SLURM ---
+.hydra/
+multirun/
+sweeps/
+*.err
+*.out
+*.log
+core.[0-9]*
+core-python-*
+
+# --- Claude Code runtime ---
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+.claude/.review_state/
+
+# --- machine-specific Hydra local overrides (none.yaml is the committed no-op) ---
+config/local/*.yaml
+!config/local/none.yaml
+
+# --- OS / editor / WSL ---
+.DS_Store
+._*
+.fuse_hidden*
+*:Zone.Identifier
+.vscode/
+.idea/
+
+# --- LaTeX build artifacts ---
+*.aux
+*.fls
+*.fdb_latexmk
+*.toc
+*.synctex.gz
+docs/*.pdf

@@ -1,0 +1,17 @@
+# @package model
+# Stage-1 self-supervised noise model.
+name: cae
+dropout: 0.20
+init_from: null
+
+# reconstruction = upstream autoencoding MSE.
+# masked        = Phase 4.1, masked patch prediction. Same parameter count, still
+#                 label-free (C3), and a masked predictor cannot satisfy its objective
+#                 by learning a generic compressor.
+objective: reconstruction
+
+# Only read when objective=masked. Anisotropy is an ablation axis in its own right:
+# (16, 8) hides a frequency band across a time span; (256, 8) hides a time slice
+# across all frequencies, which is the one a chirp cannot be inpainted through.
+mask_ratio: 0.5
+mask_patch: [16, 8]

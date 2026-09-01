@@ -1,0 +1,14 @@
+# Stage-2 weak-supervision fine-tune. Loads a stage-1 checkpoint and adds the margin.
+defaults:
+  - default
+  - override /model: cae_stage2
+  - _self_
+
+exp_type: stage2
+tag: stage2
+
+training:
+  # Upstream ran 10 epochs and was best at epoch 9, i.e. longer training was never
+  # tested. Treat length as an HPO axis, not a constant.
+  iterations: 20000
+  lr: 3.e-4

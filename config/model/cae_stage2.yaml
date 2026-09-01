@@ -1,0 +1,14 @@
+# @package model
+# Stage-2 margin fine-tune of a stage-1 CAE.
+name: cae_stage2
+dropout: 0.20
+objective: reconstruction
+
+# Upstream values. Both are prime HPO targets (Phase 5): they shape the score
+# distribution every downstream component consumes and have no a priori value.
+margin: 3.0
+margin_weight: 2.0
+
+# Path to the stage-1 checkpoint this fine-tunes. Null trains from scratch, which is
+# a different experiment — say so in `change` if you do it.
+init_from: null

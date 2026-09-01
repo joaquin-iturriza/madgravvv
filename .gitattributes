@@ -1,0 +1,4 @@
+# Normalize line endings. Shell scripts MUST stay LF so they run on Linux (CC-IN2P3).
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf

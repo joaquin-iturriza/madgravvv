@@ -1,0 +1,16 @@
+# @package representation
+# Upstream representation, exactly. The three lossy steps are switchable here because
+# switching them IS Phase 3 (experiments R1-R4).
+sample_rate: 4096
+context_seconds: 2.0
+crop_seconds: 1.0
+frange: [10.0, 1291.0]
+qrange: [4.0, 64.0]
+tres: 0.002
+fres: 0.5
+size: [256, 128]         # (frequency, time)
+
+phase_channel: false     # R1: keep the Q-transform phase as a second channel
+amplitude: minmax        # R2: minmax (upstream) | log | asd
+noise_mean: null         # required for amplitude=asd; measure on the training fold
+noise_std: null

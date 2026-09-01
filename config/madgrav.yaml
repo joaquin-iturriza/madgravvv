@@ -1,0 +1,5 @@
+# Top-level config. `python run.py` uses this; `--config-name=stage2` swaps the
+# experiment. Everything else is a CLI override.
+defaults:
+  - default
+  - _self_

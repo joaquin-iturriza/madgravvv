@@ -1,0 +1,8 @@
+# @package representation
+# R3: resolution sweep. Costs compute, not parameters — the conv stack is
+# size-agnostic except for the CAE's flattened classifier head, which is why that
+# head has to be re-counted at every resolution.
+defaults:
+  - baseline
+  - _self_
+size: [512, 256]

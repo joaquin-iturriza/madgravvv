@@ -1,0 +1,72 @@
+exp_name: madgrav
+exp_type: stage1
+run_name: null
+run_dir: null
+base_dir: .
+tag: null
+
+seed: 42
+seeds: []          # >= 3 for any claimed improvement; the record refuses a 'keep' below that
+debug: false
+save: true
+allow_cpu: false   # GPU forward is the calibrated path; CPU is smoke-test only
+
+# --- what this run is, for the record (plan section 13) ---
+hypothesis: ""
+change: ""
+verdict: needs-more-work
+reasoning: "not yet assessed"
+
+# --- constraint C2 ---
+param_budget_reference: config/param_budget.yaml
+param_budget_tolerance: 0.10
+enforce_param_budget: true
+
+# --- constraint C4: GPS-time-grouped folds, evaluation fold quarantined ---
+folds:
+  n_folds: 2
+  eval_fold: 1
+  hpo_val_frac: 0.25
+  segment_files:
+    H1: .reference/MADGRAV/search_mode/o3a_bg_segments_56.json
+    L1: .reference/MADGRAV/search_mode/o3a_bg_segments_56.json
+
+train: true
+evaluate: true
+plot: true
+
+training:
+  iterations: 20000
+  batchsize: 64            # upstream stage-1 value
+  num_workers: 4
+  log_every_n_steps: 200
+  validate_every_n_steps: 500
+  es_load_best_model: true
+
+  optimizer: Adam
+  lr: 1.e-3                # upstream stage-1 value
+  betas: [0.9, 0.999]
+  eps: 1.e-8
+  weight_decay: 1.e-5      # upstream stage-1 value
+
+  scheduler: ReduceLROnPlateau
+  reduceplateau_factor: 0.5
+  reduceplateau_patience: 5
+  cosanneal_warmup_frac: 0.0
+  cosanneal_warmup_steps: 0
+  cosanneal_eta_min: 0
+  onecycle_max_lr: 10
+  onecycle_pct_start: 0.3
+
+  clip_grad_norm: 5
+  dtype: float32
+  allow_tf32: true         # no-op on V100; ~2x matmul on H100 at ~1e-3 precision
+  fused_optimizer: true
+
+defaults:
+  - hydra
+  - representation: baseline
+  - data: o3a
+  - model: cae
+  - local: none
+  - _self_

@@ -1,0 +1,28 @@
+# MEASURED parameter counts of the vendored MADGRAV weights. Constraint C2 is enforced
+# against these numbers, never against an estimate.
+#
+# Read directly from the checkpoints' tensor shapes (BatchNorm running statistics
+# excluded — they are state, not capacity):
+#
+#   .reference/MADGRAV/assets/models/baseline_cae_weaksup_best.pt
+#   .reference/MADGRAV/lr_cascade/p1v42/arm_deploy_seed0.pt
+#   .reference/MADGRAV/search_mode/hm_native_seed0.pt
+#   .reference/MADGRAV/search_mode/lm_native_seed0.pt
+#
+# Regenerate with:  python scripts/measure_param_budget.py
+#
+# Note the arms come in ~1.06e5, close to the ~1e5 the plan assumed, but the CAE is
+# 2.5x that — and a quarter of it is one Linear(65536, 1) head on the flattened latent.
+# Any CAE replacement has to account for that head rather than dropping it for free.
+
+components:
+  cae: 251394              # BaselineCAE, stage-2 weak-supervised checkpoint
+  cae_conv: 185857         #   the autoencoder proper (cae minus the classifier head)
+  cae_classifier: 65537    #   Linear(128*32*16 -> 1)
+  glitch_arm: 105953       # GlitchArm, 1 input channel
+  specialist_hm: 106097    # SpecialistCNN, 2 input channels (20-140 Hz)
+  specialist_lm: 106097    # SpecialistCNN, 2 input channels (50-500 Hz)
+
+meta:
+  measured_by: scripts/measure_param_budget.py
+  excludes: [running_mean, running_var, num_batches_tracked]

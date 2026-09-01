@@ -1,0 +1,11 @@
+# @package data
+# The bundled 256 s GW190521 segment. `bash .reference/MADGRAV/demo/run_demo.sh`
+# recovers it in ~2 min at net sigma ~7.7, HM ~0.99, LM ~0.95, verdict RECOVERED —
+# that is the reproduction gate (plan section 3.4). Useful for a smoke test; useless
+# for anything quoted, since it is one event.
+defaults:
+  - o3a
+  - _self_
+source: cached
+window_seconds: 4.0
+val_tiles: 64

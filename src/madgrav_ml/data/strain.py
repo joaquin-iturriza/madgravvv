@@ -169,7 +169,11 @@ def fetch_strain(ifo: str, start: float, end: float, cache_dir: str | Path,
             f"~{expected}. Refusing to cache a short segment — it would train silently."
         )
 
-    tmp = path.with_suffix(".npz.partial")
+    # The temp name must itself end in `.npz`. `np.savez_compressed` APPENDS `.npz`
+    # when the filename does not, so a `.npz.partial` temp gets written as
+    # `.npz.partial.npz` and the rename then fails on a file that was never created --
+    # after paying for the whole download. Caught here the expensive way.
+    tmp = path.with_suffix(".partial.npz")
     np.savez_compressed(tmp, strain=strain, start=start, end=end,
                         sample_rate=sample_rate, ifo=ifo)
     tmp.replace(path)

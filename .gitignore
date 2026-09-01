@@ -54,6 +54,8 @@ core-python-*
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 .claude/.review_state/
+.claude/.figpair_last
+.claude/.no_waiter_needed
 
 # --- machine-specific Hydra local overrides (none.yaml is the committed no-op) ---
 config/local/*.yaml

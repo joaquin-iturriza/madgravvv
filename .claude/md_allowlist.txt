@@ -1,0 +1,5 @@
+# Paths (repo-relative or absolute) of NEW .md/.tex/.rst files the user has explicitly
+# approved. One per line; '#' starts a comment. See .claude/hooks/md_guard.sh.
+#
+# Adding a line here is a record that the user approved a new document. Do not add one
+# on your own judgement.

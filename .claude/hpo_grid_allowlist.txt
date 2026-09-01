@@ -1,0 +1,6 @@
+# Paths of sbatch scripts the user has explicitly approved as one-off hyperparameter
+# grids, despite hpo_guard.sh. One per line; '#' starts a comment.
+#
+# Adding a line here is a record that the user approved a grid. Do not add one on your
+# own judgement — and note that an approved grid still has to run inside the training
+# fold (C4); the allowlist waives the "use the Bayesian search" rule, never the fold rule.

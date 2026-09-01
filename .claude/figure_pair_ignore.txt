@@ -1,0 +1,2 @@
+# Figure basenames or repo-relative paths that legitimately exist in one format only.
+# One per line. See .claude/hooks/figure_pair_guard.sh.

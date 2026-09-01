@@ -1,0 +1,2 @@
+# Substrings or paths for which plot_guard.sh should allow plotting to be disabled.
+# One per line; '#' starts a comment. Do not add one on your own judgement.

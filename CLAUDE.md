@@ -222,7 +222,7 @@ the Grad-CAM localizer with an explicit localization head.
 | Project root (local, sshfs) | `/home/joaquin/mnt/ccin2p3/madgrav` (== the cluster path; edit/read here) |
 | Python | `.venv/bin/python` (built by `scripts/setup_env.sh`) |
 | Upstream repo (vendored, read-only) | `.reference/MADGRAV` — `bash scripts/vendor_reference.sh` |
-| Reference repos | `.reference/{MADGRAV,Foundational_Amplitudes}` (read-only) |
+| Reference repos | `.reference/{MADGRAV,Foundational_Amplitudes}` (read-only). **Note FA's dev trunk is its `jeanzay` branch** — `main` is a stripped published artifact with no `CLAUDE.md` or `.claude/`, so clone or check out `jeanzay` to see the rules this project's `.claude/` is ported from |
 | Strain cache | `data_cache/strain/` (gitignored; ~262 GB for O3a) |
 | Run outputs | `runs/<exp_name>/<run_name>/` (gitignored) |
 | SLURM logs | `runs/_logs/` (on the mount — tail locally, no ssh) |
@@ -314,7 +314,7 @@ the gate invalidates every previously generated slide.
 | `src/madgrav_ml/eval/calibration.py` | temperature scaling, ECE, reliability curves |
 | `src/madgrav_ml/report/record.py` | the per-experiment record; refuses to serialise an unsupportable claim |
 | `config/` | Hydra tree: `default`, `model/`, `data/`, `representation/`, `local/`, `param_budget.yaml` |
-| `scripts/` | `remote.sh`, `wait_for_slurm.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py` |
+| `scripts/` | `remote.sh`, `wait_for_slurm.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py`, `fold_worktree.sh` |
 | `jobs/` | CC-IN2P3 SLURM scripts |
 | `tests/` | pytest suite (fold guard, FAR arithmetic, efficiency, budget) |
 | `docs/results.tex` | the lab notebook; `docs/improvement-plan.md` (gitignored) the plan |
@@ -421,10 +421,32 @@ backlog signals (lines accumulated, whether core numerics under
 or prose-only spans, **opus** for large or core-numerics backlogs where a miss is
 costly. Floor sonnet, ceiling opus.
 
-**A separate, always-on gate:** `.claude/hooks/constraint_guard.sh` denies an `ml4gw`
-import (C5) at the moment it is written, and reminds on AUC/ROC in an experiment or
-report path. It does not judge C1–C3 — those are semantic and belong to the
-repo-reviewer and to the runtime check in `param_budget.py`.
+### Always-on guards (`.claude/hooks/`)
+
+Separate from the batched reviewers: these fire on the individual action, because each
+guards a failure the model has demonstrably talked itself into. Most are ported from
+`.reference/Foundational_Amplitudes`, where the rationale in each header is a record of
+what it already cost.
+
+| Hook | Fires on | Blocks |
+|---|---|---|
+| `constraint_guard` | Edit/Write | an `ml4gw` import or dependency (**C5**); reminds on AUC/ROC in an experiment or report path |
+| `hpo_guard` | Bash | `sbatch --array` over an HP. Two reasons: it has **no fold record** (nothing opens `FoldGuard.hpo()`, nothing reaches `fold_audit.jsonl`, nothing stops a trial scoring on the evaluation fold — **C4**), and a 1-D grid at fixed other-HPs cannot find a joint optimum, so it manufactures a false "this HP doesn't matter". Arrays over seeds, objective or representation stay allowed |
+| `md_guard` | Write | a NEW `.md`/`.tex`/`.rst` anywhere. A hand-written findings file records a result while bypassing `ExperimentRecord`, which is the thing that refuses a claim with no fold, no FAR and no seeds. "It's a report, not guidance" is not an exception |
+| `plot_guard` | Bash/Write | configuring a run with plotting off. The plots are the diagnostics no scalar shows; a run that trained fine without them has to be repeated |
+| `figure_pair_guard` | Stop | a figure written this session existing in only one of `.png`/`.pdf` |
+| `worktree_fold_guard` | Bash | removing a worktree whose gitignored results — including `fold_audit.jsonl` and `summary.json` — exist nowhere else. Fold with `scripts/fold_worktree.sh` first |
+| `slurm_waiter_guard` | Stop | ending a turn with jobs queued and no background waiter. Checks via `scripts/remote.sh` and **fails open** on any ssh problem |
+| `block_memory`, `worktree_guard`, `commit_checkpoint`, `auto_push` | — | persistent memory, trunk-edit reminder, the commit checkpoint, the push |
+
+Each blocking guard has a deliberate, auditable escape hatch — `md_allowlist.txt`,
+`hpo_grid_allowlist.txt`, `plot_disable_allowlist.txt`, `figure_pair_ignore.txt`,
+`.no_waiter_needed`. Adding a line to one is a record that **the user approved this**;
+never add one on your own judgement. Note what the HPO allowlist does *not* waive: an
+approved one-off grid still has to run inside the training fold.
+
+None of these judge C1–C3 — those are semantic and belong to the repo-reviewer and to
+the runtime check in `param_budget.py`.
 
 ---
 

@@ -112,3 +112,17 @@ def test_summary_reports_the_fold_accounting(tmp_path):
     assert s["n_folds"] == 2 and s["eval_fold"] == 1
     assert s["train_livetime_s"] > 0 and s["eval_livetime_s"] > 0
     assert s["eval_fold_reads"] == 0
+
+
+def test_audit_records_the_calling_line(tmp_path):
+    """The audit trail is the evidence shown to a reviewer, so the recorded caller must
+    be the line that asked for the data, not a frame inside the guard."""
+    import json
+
+    path = tmp_path / "audit.jsonl"
+    g = FoldGuard.from_segments(segments(), audit_path=path)
+    with g.training("t"):
+        g.segments(Split.TRAIN)
+    rec = json.loads(path.read_text().strip())
+    assert rec["caller"].startswith("test_folds.py:")
+    assert rec["phase"] == "training" and rec["label"] == "t"

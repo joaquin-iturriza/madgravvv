@@ -293,9 +293,10 @@ class FoldGuard:
 
     def _audit(self, split: Split, segs: Iterable[Segment]) -> None:
         segs = list(segs)
-        # Two frames up is the caller of `segments`; that is the line worth recording.
-        stack = traceback.extract_stack(limit=4)
-        frame = stack[0] if len(stack) < 4 else stack[-4]
+        # extract_stack ends at this frame, so [-1] is _audit, [-2] is `segments`, and
+        # [-3] is the caller of `segments` — the line an auditor actually wants.
+        stack = traceback.extract_stack(limit=3)
+        frame = stack[-3] if len(stack) >= 3 else stack[0]
         rec = _AuditRecord(
             t=time.time(),
             phase=self.phase.value,

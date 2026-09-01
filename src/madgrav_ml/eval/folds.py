@@ -92,6 +92,31 @@ class Segment:
         return self.end - self.start
 
 
+def _overlap_groups(segments: Sequence[Segment]) -> list[list[Segment]]:
+    """Group segments into maximal blocks of overlapping GPS time.
+
+    A group is the unit a fold is built from, and it exists because a segment is not the
+    unit of independence — a *stretch of time* is. H1 at time t and L1 at time t are the
+    same hour of the same detector network state, and the coincident segment lists this
+    project reads describe both detectors with one row, so the naive approach of sorting
+    a flat segment list and cutting on cumulative livetime will happily put the H1 copy
+    of a segment in one fold and its L1 copy in the other. That is a leak of exactly the
+    kind the GPS grouping exists to prevent, and it is invisible in a livetime balance
+    check.
+    """
+    ordered = sorted(segments, key=lambda s: (s.start, s.end, s.ifo))
+    groups: list[list[Segment]] = []
+    end = float("-inf")
+    for seg in ordered:
+        if groups and seg.start < end:
+            groups[-1].append(seg)
+            end = max(end, seg.end)
+        else:
+            groups.append([seg])
+            end = seg.end
+    return groups
+
+
 def gps_grouped_folds(
     segments: Sequence[Segment],
     n_folds: int = 2,
@@ -104,31 +129,54 @@ def gps_grouped_folds(
     is on livetime (sum of durations), not on segment count, because segments vary in
     length by orders of magnitude.
 
+    Splitting happens on **overlap groups**, not on individual segments, so every
+    detector's view of a given stretch of time lands in the same fold. The returned
+    folds therefore have disjoint GPS spans, which `assert_disjoint_folds` re-checks.
+
     Returns folds in GPS order; `folds[i]` is a list of Segments.
     """
     if n_folds < 2:
         raise ValueError(f"n_folds must be >= 2, got {n_folds}")
-    ordered = sorted(segments, key=lambda s: (s.start, s.end, s.ifo))
-    if len(ordered) < n_folds:
-        raise ValueError(f"{len(ordered)} segments cannot fill {n_folds} folds")
+    groups = _overlap_groups(segments)
+    if len(groups) < n_folds:
+        raise ValueError(
+            f"{len(groups)} independent GPS-time blocks cannot fill {n_folds} folds "
+            f"(from {len(segments)} segments — overlapping segments count once)"
+        )
 
-    total = sum(s.duration for s in ordered)
+    total = sum(s.duration for g in groups for s in g)
     target = total / n_folds
 
     folds: list[list[Segment]] = [[] for _ in range(n_folds)]
     acc, idx = 0.0, 0
-    for seg in ordered:
-        # Move to the next fold once this one has its share, but never leave a fold
-        # empty and never overflow the last one.
-        if idx < n_folds - 1 and acc >= target * (idx + 1):
+    remaining = len(groups)
+    for gi, group in enumerate(groups):
+        # Advance once this fold has its share — but never so far that a later fold
+        # cannot be filled, which is what `remaining` guards.
+        if idx < n_folds - 1 and acc >= target * (idx + 1) and remaining > (n_folds - 1 - idx):
             idx += 1
-        folds[idx].append(seg)
-        acc += seg.duration
+        folds[idx].extend(group)
+        acc += sum(s.duration for s in group)
+        remaining -= 1
 
     empty = [i for i, f in enumerate(folds) if not f]
     if empty:
         raise ValueError(f"folds {empty} came out empty; too few segments for n_folds={n_folds}")
+    assert_disjoint_folds(folds)
     return folds
+
+
+def assert_disjoint_folds(folds: Sequence[Sequence[Segment]]) -> None:
+    """Raise if any two folds share GPS time. Cheap, and the whole point of the split."""
+    spans = [(min(s.start for s in f), max(s.end for s in f)) for f in folds if f]
+    for i in range(len(spans) - 1):
+        if spans[i + 1][0] < spans[i][1]:
+            raise FoldLeakError(
+                f"folds {i} and {i + 1} overlap in GPS time: fold {i} ends at "
+                f"{spans[i][1]:.0f} but fold {i + 1} starts at {spans[i + 1][0]:.0f}. "
+                f"The same stretch of detector state is on both sides of the split, so "
+                f"the evaluation fold is not held out."
+            )
 
 
 @dataclass

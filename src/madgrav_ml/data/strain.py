@@ -21,28 +21,68 @@ DQ_FLAGS = ("DATA", "CBC_CAT1", "CBC_CAT2")
 RUNS = ("O3a", "O3b", "O4a", "O4b")
 
 
-def load_segments(path: str | Path, ifo: str | None = None) -> list[Segment]:
-    """Read a segment list.
+def load_segments(
+    path: str | Path, ifo: str | None = None, drop_event_segments: bool = False
+) -> list[Segment]:
+    """Read a segment list in any of the shapes the upstream repo ships.
 
-    Accepts the upstream JSON shapes found in `search_mode/*.json` — either a list of
-    `[start, stop]` pairs, or a mapping from IFO to such a list. `ifo` selects one
-    detector from a mapping, and is required when the file holds several.
+    Three shapes are accepted:
+
+    * **The O3a background format** — a dict with a `"segments"` key holding
+      `[start, stop, duration, event_name_or_null]` rows, as in
+      `search_mode/o3a_bg_segments_56.json`. These are **coincident** segments (both
+      detectors analysable), so the same list describes H1 and L1 and `ifo` only labels
+      the copy you want.
+    * a mapping from IFO to a list of `[start, stop]` pairs;
+    * a bare list of `[start, stop]` pairs, with `ifo` supplied.
+
+    `drop_event_segments` removes the rows whose fourth field names a catalogue event.
+    Off by default: a named event occupies a couple of seconds of a four-hour segment,
+    so dropping the whole segment throws away ~14 % of the O3a-56 livetime to remove a
+    negligible amount of signal. Turn it on only when a run must be provably
+    signal-free, and say so in the run record.
     """
     data = json.loads(Path(path).read_text())
-    if isinstance(data, dict):
+
+    rows = None
+    if isinstance(data, dict) and "segments" in data:
+        rows = data["segments"]
+    elif isinstance(data, dict):
         if ifo is None:
             if len(data) != 1:
                 raise ValueError(
                     f"{path} holds segments for {sorted(data)}; pass ifo= to choose one"
                 )
-            ifo, pairs = next(iter(data.items()))
+            ifo, rows = next(iter(data.items()))
         else:
-            pairs = data[ifo]
+            rows = data[ifo]
     else:
         if ifo is None:
             raise ValueError(f"{path} is a bare segment list; pass ifo= to label it")
-        pairs = data
-    return [Segment(ifo=ifo, start=float(a), end=float(b)) for a, b in pairs]
+        rows = data
+
+    if ifo is None:
+        raise ValueError(f"{path} does not name a detector; pass ifo=")
+
+    out = []
+    for row in rows:
+        if drop_event_segments and len(row) > 3 and row[3]:
+            continue
+        out.append(Segment(ifo=ifo, start=float(row[0]), end=float(row[1])))
+    if not out:
+        raise ValueError(f"{path}: no segments left after filtering")
+    return out
+
+
+def named_events(path: str | Path) -> dict[str, float]:
+    """`{event_name: segment_start}` for the rows that carry one.
+
+    Useful as a sanity check rather than as physics: if a run's foreground never lights
+    up on a segment known to contain GW190521, something upstream of the score is wrong.
+    """
+    data = json.loads(Path(path).read_text())
+    rows = data["segments"] if isinstance(data, dict) and "segments" in data else data
+    return {r[3]: float(r[0]) for r in rows if len(r) > 3 and r[3]}
 
 
 def total_livetime(segments) -> float:

@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Warm the strain cache from GWOSC, for the training fold only.
+
+Run on a LOGIN NODE. Compute nodes have internet too, but a job should read the cache,
+not fill it: thirty parallel jobs refetching the same segments is slow and antisocial.
+
+    .venv/bin/python scripts/fetch_strain.py --dry-run          # what it would fetch
+    .venv/bin/python scripts/fetch_strain.py                    # fetch the training fold
+
+WHY TRAINING FOLD ONLY, BY DEFAULT. Constraint C4 says the evaluation fold is read once,
+at the end, for the quoted number. Not downloading it is the cheapest possible
+enforcement of that: `FoldGuard` can be worked around by a determined mistake, an absent
+file cannot. It also halves the bytes. `--fold eval` exists for the day the final report
+is actually run, and it says so loudly.
+
+The segments are fetched whole and cached per (ifo, start, end) as float32 `.npz`. They
+are NOT whitened here — whitening is against the run-averaged reference PSD and belongs
+to the representation, which is an ablation axis (R2), so caching whitened data would
+bake one choice of it into the cache.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "src"))
+
+from madgrav_ml.data.strain import fetch_strain, load_segments  # noqa: E402
+from madgrav_ml.eval.folds import FoldGuard, Split  # noqa: E402
+
+DEFAULT_SEGMENTS = REPO / ".reference/MADGRAV/search_mode/o3a_bg_segments_56.json"
+DEFAULT_CACHE = REPO / "data_cache/strain"
+IFOS = ("H1", "L1")
+
+
+def human(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--segments", type=Path, default=DEFAULT_SEGMENTS)
+    ap.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
+    ap.add_argument("--fold", choices=("train", "eval"), default="train")
+    ap.add_argument("--sample-rate", type=int, default=4096)
+    ap.add_argument("--limit", type=int, default=None,
+                    help="fetch at most N segment-detector pairs (a smaller slice still)")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    if not args.segments.exists():
+        print(f"no segment list at {args.segments}\n"
+              f"vendor the upstream repo first: bash scripts/vendor_reference.sh",
+              file=sys.stderr)
+        return 1
+
+    segs = []
+    for ifo in IFOS:
+        segs.extend(load_segments(args.segments, ifo=ifo))
+    guard = FoldGuard.from_segments(segs, eval_fold=1, n_folds=2)
+
+    if args.fold == "eval":
+        print("!" * 76)
+        print("! Fetching the EVALUATION fold. This is the data C4 quarantines: it is read")
+        print("! once, at the end, for the quoted number. Having it on disk removes the")
+        print("! cheapest protection against reading it early. Do this only when the final")
+        print("! report is actually being run, and record why in the run record.")
+        print("!" * 76)
+        with guard.final_report("fetch-eval-fold"):
+            wanted = guard.segments(Split.EVAL)
+    else:
+        with guard.training("fetch-train-fold"):
+            wanted = guard.segments(Split.TRAIN)
+
+    if args.limit:
+        wanted = wanted[: args.limit]
+
+    live = sum(s.duration for s in wanted)
+    est = live * args.sample_rate * 4
+    print(f"segment list : {args.segments}")
+    print(f"cache        : {args.cache}")
+    print(f"fold         : {args.fold}")
+    print(f"to fetch     : {len(wanted)} segment-detector pairs, {live / 86400:.2f} d")
+    print(f"estimate     : {human(est)} uncompressed float32 at {args.sample_rate} Hz")
+
+    have = [s for s in wanted
+            if (args.cache / f"{s.ifo}_{int(s.start)}_{int(s.end)}.npz").exists()]
+    print(f"already cached: {len(have)}/{len(wanted)}")
+    todo = [s for s in wanted if s not in have]
+    if args.dry_run:
+        for s in todo[:5]:
+            print(f"  would fetch {s.ifo} {int(s.start)}..{int(s.end)} ({s.duration / 3600:.1f} h)")
+        if len(todo) > 5:
+            print(f"  ... and {len(todo) - 5} more")
+        return 0
+
+    args.cache.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+    failures = []
+    for i, s in enumerate(todo, 1):
+        tag = f"[{i}/{len(todo)}] {s.ifo} {int(s.start)}"
+        try:
+            arr = fetch_strain(s.ifo, s.start, s.end, args.cache, args.sample_rate)
+            el = time.time() - t0
+            rate = i / el if el else 0
+            eta = (len(todo) - i) / rate if rate else 0
+            print(f"{tag}  {arr.size:,} samples  "
+                  f"[{el / 60:.1f} min elapsed, ~{eta / 60:.0f} min left]", flush=True)
+        except Exception as exc:
+            # One bad segment must not lose the whole fetch: GWOSC drops connections, and
+            # a partial cache is resumable while a crashed script at segment 40 of 58 is
+            # just lost time. Failures are reported at the end, not swallowed.
+            failures.append((s, f"{type(exc).__name__}: {exc}"))
+            print(f"{tag}  FAILED {type(exc).__name__}: {exc}", flush=True)
+
+    print(f"\ndone in {(time.time() - t0) / 60:.1f} min")
+    if failures:
+        print(f"{len(failures)} segment(s) failed — re-run to retry them:")
+        for s, err in failures[:10]:
+            print(f"  {s.ifo} {int(s.start)}..{int(s.end)}  {err}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

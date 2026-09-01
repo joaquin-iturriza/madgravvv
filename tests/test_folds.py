@@ -7,6 +7,7 @@ from madgrav_ml.eval.folds import (
     FoldLeakError,
     Segment,
     Split,
+    assert_disjoint_folds,
     gps_grouped_folds,
 )
 
@@ -126,3 +127,66 @@ def test_audit_records_the_calling_line(tmp_path):
     rec = json.loads(path.read_text().strip())
     assert rec["caller"].startswith("test_folds.py:")
     assert rec["phase"] == "training" and rec["label"] == "t"
+
+
+# --- the split must be on GPS TIME, not on the segment list -------------------
+# Found the first time real data hit it: the coincident O3a lists describe both
+# detectors with one row, so a flat sort put the H1 copy of a segment in fold 0 and its
+# L1 copy in fold 1. Livetime balance looked perfect and the folds shared an hour of
+# detector state.
+
+
+def coincident(n=20, start=1_238_000_000.0, dur=14400.0, gap=3600.0):
+    """Both detectors' view of the same n stretches of time."""
+    out = []
+    for i in range(n):
+        a = start + i * (dur + gap)
+        out.append(Segment("H1", a, a + dur))
+        out.append(Segment("L1", a, a + dur))
+    return out
+
+
+def test_folds_do_not_share_gps_time():
+    folds = gps_grouped_folds(coincident(), n_folds=2)
+    a_end = max(s.end for s in folds[0])
+    b_start = min(s.start for s in folds[1])
+    assert b_start >= a_end
+
+
+def test_both_detectors_of_a_span_land_in_the_same_fold():
+    folds = gps_grouped_folds(coincident(), n_folds=2)
+    where = {}
+    for i, f in enumerate(folds):
+        for s in f:
+            where.setdefault((s.start, s.end), set()).add(i)
+    straddling = [k for k, v in where.items() if len(v) > 1]
+    assert not straddling, f"spans split across folds: {straddling}"
+
+
+def test_assert_disjoint_folds_catches_an_overlap():
+    a = [Segment("H1", 0, 100)]
+    b = [Segment("L1", 50, 150)]
+    with pytest.raises(FoldLeakError, match="overlap in GPS time"):
+        assert_disjoint_folds([a, b])
+
+
+def test_too_few_independent_blocks_is_reported_as_such():
+    """Twenty segments that all overlap are ONE block, not twenty."""
+    segs = [Segment("H1", 0, 1000) for _ in range(20)]
+    with pytest.raises(ValueError, match="independent GPS-time blocks"):
+        gps_grouped_folds(segs, n_folds=2)
+
+
+def test_the_real_upstream_segment_list_splits_cleanly():
+    from pathlib import Path
+
+    from madgrav_ml.data.strain import load_segments
+
+    f = Path(".reference/MADGRAV/search_mode/o3a_bg_segments_56.json")
+    if not f.exists():
+        pytest.skip("upstream repo not vendored; run scripts/vendor_reference.sh")
+    segs = load_segments(f, ifo="H1") + load_segments(f, ifo="L1")
+    folds = gps_grouped_folds(segs, n_folds=2)
+    assert_disjoint_folds(folds)
+    live = [sum(s.duration for s in f_) for f_ in folds]
+    assert abs(live[0] - live[1]) / sum(live) < 0.10

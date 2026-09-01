@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 """Precompute a bank of noise tiles from the cached strain.
 
-WHY THIS EXISTS, since Phase 2 of the plan asks for on-the-fly generation. Measured on
-this cluster: one tile costs ~4.6 s, essentially all of it the Q-transform. At batch 64
-that is ~5 minutes per batch on one core, so a 20k-step run would be years. Upstream hits
-the same wall and solves it the same way — `improved_pipeline.compute_qt_images` fans the
-Q-transform over a 16-process pool, and the search precomputes tile caches rather than
-transforming during inference.
+WHY THIS EXISTS. Properly profiled (three timed calls after a warm-up, not one cold
+call), a tile costs about 277 ms:
 
-So the representation is precomputed and training reads a bank. That does bound Phase 2:
-"effectively infinite non-repeating data" is affordable for the *injection* half (drawing
-new waveforms is cheap) but not for the noise half at this Q-transform cost. Note it in
-the run record rather than claiming a generator that is really a bank.
+    whiten                     0.5 ms
+    highpass + 15 notches     18   ms
+    Q-transform              252   ms      <- gwpy, upstream settings
+    resize to 256x128          7   ms
+
+An earlier version of this docstring claimed 4.6 s and concluded that on-the-fly noise
+generation was infeasible. That was a cold-call artifact — one untimed-warm-up
+measurement per stage, dominated by lazy `import scipy` / `import gwpy` inside the
+functions. The true cost is 17x smaller and on-the-fly IS feasible: batch 64 is 17.7
+core-seconds, so ~0.55 s/batch at 32 workers.
+
+The bank is still the right default, for a different and weaker reason: a multi-epoch run
+recomputes the identical transform for the identical window on every epoch, so
+precomputing is roughly a 50x saving across a run and makes iteration interactive. It is
+an efficiency choice, not a feasibility one, and Phase 2 on-the-fly generation remains
+open — `data.source: generated` is a supported path, not a blocked one.
+
+Building 20k tiles at 16 workers takes about six minutes.
 
 Segments are processed one at a time and many windows drawn from each, rather than
 sampling segments at random: a segment is 236 MB and a random draw over 56 of them misses
@@ -29,6 +39,16 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
+
+# Import the heavy, lazily-imported dependencies HERE, in the parent, before any worker
+# is forked. On Linux `Pool` forks, so the children inherit these already-loaded modules.
+# Without this each worker imports scipy and gwpy on its first tile, from a venv on the
+# shared /sps filesystem — 32 processes doing a metadata-heavy import storm at once. That
+# is not a slowdown: a 32-worker build sat for 54 minutes and produced zero tiles, with
+# every worker stuck inside `scipy.linalg.blas`.
+import scipy.ndimage  # noqa: F401,E402
+import scipy.signal  # noqa: F401,E402
+from gwpy.timeseries import TimeSeries  # noqa: F401,E402
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
@@ -70,7 +90,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=REPO / "data_cache/tiles/train")
     ap.add_argument("--n-tiles", type=int, default=20000)
     ap.add_argument("--split", choices=("hpo_train", "hpo_val", "train"), default="hpo_train")
-    ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--workers", type=int, default=16)  # see the import note above
     ap.add_argument("--shard-size", type=int, default=2000)
     ap.add_argument("--window-seconds", type=float, default=4.0)
     ap.add_argument("--seed", type=int, default=42)

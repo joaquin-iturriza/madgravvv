@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Warm the strain cache from GWOSC, for the training fold only.
 
-Run on a LOGIN NODE. Compute nodes have internet too, but a job should read the cache,
-not fill it: thirty parallel jobs refetching the same segments is slow and antisocial.
+Run it as a SLURM job on the `htc` CPU partition:
 
-    .venv/bin/python scripts/fetch_strain.py --dry-run          # what it would fetch
-    .venv/bin/python scripts/fetch_strain.py                    # fetch the training fold
+    scripts/remote.sh sbatch jobs/job_fetch_strain.sh
+
+NOT on a login node, despite it being a download. A full fetch is an hour or more of
+wall clock, and a login node killed ours partway through with no message -- the log
+simply stops mid-run. Login nodes are for `--dry-run` and for one-segment checks. And
+NOT as one job per segment either: the point is a single, polite, resumable filler.
+
+    .venv/bin/python scripts/fetch_strain.py --dry-run          # what it would fetch (login node, fine)
 
 WHY TRAINING FOLD ONLY, BY DEFAULT. Constraint C4 says the evaluation fold is read once,
 at the end, for the quoted number. Not downloading it is the cheapest possible
@@ -54,10 +59,15 @@ def main() -> int:
     ap.add_argument("--sample-rate", type=int, default=4096)
     ap.add_argument("--limit", type=int, default=None,
                     help="fetch at most N segment-detector pairs (a smaller slice still)")
-    ap.add_argument("--jobs", type=int, default=4,
-                    help="concurrent fetches. The work is network-bound, so threads are "
-                         "the right tool. Kept modest by default: GWOSC is a shared "
-                         "public service and this is not the only thing using it.")
+    ap.add_argument("--jobs", type=int, default=2,
+                    help="concurrent fetches. Network-bound, so threads. Two, not four: "
+                         "at four we were rate-limited by GWOSC and 29 of 30 segments "
+                         "failed. GWOSC is a shared public service and we are not its "
+                         "only user.")
+    ap.add_argument("--chunk-seconds", type=float, default=None,
+                    help="split each segment into fetches of this length. Off by "
+                         "default -- gwpy issues an API query per call, so chunking "
+                         "multiplies the request rate and is what got us rate-limited.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -112,7 +122,8 @@ def main() -> int:
     done = 0
 
     def one(seg):
-        return seg, fetch_strain(seg.ifo, seg.start, seg.end, args.cache, args.sample_rate)
+        return seg, fetch_strain(seg.ifo, seg.start, seg.end, args.cache,
+                                 args.sample_rate, chunk_seconds=args.chunk_seconds)
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 

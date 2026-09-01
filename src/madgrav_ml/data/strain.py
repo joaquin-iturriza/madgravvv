@@ -106,9 +106,21 @@ def load_reference_psd(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
         return np.asarray(z[fkey], dtype=float), np.asarray(z[pkey], dtype=float)
 
 
-CHUNK_SECONDS = 4096.0   # GWOSC serves 4096 s files; asking for one is one round trip
-FETCH_RETRIES = 4
-RETRY_BACKOFF_S = 15.0
+# Chunking is OFF by default, and that is a measured decision rather than a default.
+# GWOSC serves 4096 s files, so chunking at 4096 s looks like the natural unit -- but
+# gwpy issues an `event-versions` API query per fetch_open_data CALL, not per file. So
+# chunking a four-hour segment turned 1 API query into 4, and at four concurrent workers
+# that was 16x the request rate of the unchunked version. GWOSC rate-limited us: 58
+# "Too much trials for https://gwosc.org/api/v2/event-versions?..." lines and 29 of 30
+# segments failing with "failed to get data from any source".
+#
+# One request per segment is what actually worked (3.0 min for a 2.6 h segment). Pass
+# chunk_seconds explicitly if a segment is too large to fetch in one call.
+CHUNK_SECONDS = None
+FETCH_RETRIES = 5
+# Backoff schedule in seconds, not a multiplier: a rate limit needs minutes, not the
+# ~1 s a naive exponential starts with. Index i is the wait after attempt i.
+RETRY_BACKOFF_S = (15.0, 60.0, 180.0, 300.0)
 
 
 def cache_path(cache_dir: str | Path, ifo: str, start: float, end: float) -> Path:
@@ -116,7 +128,7 @@ def cache_path(cache_dir: str | Path, ifo: str, start: float, end: float) -> Pat
 
 
 def fetch_strain(ifo: str, start: float, end: float, cache_dir: str | Path,
-                 sample_rate: int = 4096, chunk_seconds: float = CHUNK_SECONDS,
+                 sample_rate: int = 4096, chunk_seconds: float | None = CHUNK_SECONDS,
                  retries: int = FETCH_RETRIES) -> np.ndarray:
     """Cached GWOSC fetch for one stretch of strain.
 
@@ -145,10 +157,11 @@ def fetch_strain(ifo: str, start: float, end: float, cache_dir: str | Path,
 
     from gwpy.timeseries import TimeSeries
 
+    step = float(chunk_seconds) if chunk_seconds else float(end) - float(start)
     chunks: list[np.ndarray] = []
     t = float(start)
     while t < end:
-        te = min(t + chunk_seconds, float(end))
+        te = min(t + step, float(end))
         for attempt in range(retries):
             try:
                 ts = TimeSeries.fetch_open_data(ifo, t, te, sample_rate=sample_rate,
@@ -158,7 +171,8 @@ def fetch_strain(ifo: str, start: float, end: float, cache_dir: str | Path,
             except Exception:
                 if attempt == retries - 1:
                     raise
-                time.sleep(RETRY_BACKOFF_S * (attempt + 1))
+                wait = RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)]
+                time.sleep(wait)
         t = te
 
     strain = np.concatenate(chunks)

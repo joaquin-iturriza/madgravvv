@@ -175,14 +175,21 @@ def test_optimal_snr_scales_linearly_with_amplitude():
                       3.0 * W.optimal_snr(w.plus, FS, psd), rtol=1e-9)
 
 
-def test_snr_in_window_fraction_is_a_fraction():
-    psd = flat_psd()
-    w = W.LALWaveformBackend().generate_window(params(mass1=15.0, mass2=12.0), FS, WINDOW)
-    whole = W.snr_in_window_fraction(w.plus, FS, psd, WINDOW)
-    crop = W.snr_in_window_fraction(w.plus, FS, psd, 1.0)
-    assert np.isclose(whole, 1.0, atol=1e-6)
+def test_snr2_fraction_in_crop_is_a_fraction():
+    """It must never exceed 1, which the first implementation did.
+
+    That version zeroed the tails and re-integrated |h~|^2/S in the frequency domain.
+    Truncating in time adds broadband leakage, the leakage lands where the ASD is small,
+    and dividing by a tiny PSD returned a "fraction" of 1.084 on a real O3a curve.
+    """
+    e = engine()
+    p = params(mass1=15.0, mass2=12.0, network_snr=10.0)
+    h = e.whitened_signal(p, "H1", W.REFERENCE_GPS)
+    whole = W.snr2_fraction_in_crop(h, FS, WINDOW)
+    crop = W.snr2_fraction_in_crop(h, FS, 1.0)
+    assert np.isclose(whole, 1.0, atol=1e-12)
     assert 0.0 < crop <= 1.0
-    assert crop < whole, "a 1 s crop of a low-mass inspiral must lose some SNR"
+    assert crop <= whole
 
 
 # --- the whole path -----------------------------------------------------------

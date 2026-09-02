@@ -243,27 +243,28 @@ def optimal_snr(
     return float(np.sqrt(4.0 * np.sum(np.abs(spectrum[band]) ** 2 / s_interp[band]) * df))
 
 
-def snr_in_window_fraction(
-    h: np.ndarray,
-    sample_rate: int,
-    psd: tuple[np.ndarray, np.ndarray],
-    seconds: float,
-    f_low: float = DEFAULT_F_LOWER,
-) -> float:
-    """Fraction of rho^2 carried by the central `seconds` of `h`.
+def snr2_fraction_in_crop(whitened: np.ndarray, sample_rate: int,
+                          seconds: float) -> float:
+    """Fraction of rho^2 carried by the central `seconds` of a WHITENED waveform.
 
     The tile is a Q-transform of a central crop, so a long inspiral deposits SNR the
     network never sees. This is the number that says how much.
+
+    Measured as whitened energy, not by zeroing the tails and re-integrating in the
+    frequency domain. The first version did the latter and returned 1.084 — a
+    "fraction" above one — because truncating a waveform in time adds broadband
+    content, and that leakage lands where the ASD is small and gets divided by a tiny
+    PSD. Whitened energy is the frequency-domain SNR integral (rho^2 = 2/fs * sum w^2
+    in this convention) written as a sum that is local in time, so a crop of it is
+    exactly the SNR the crop contains.
     """
-    n = len(h)
-    keep = int(round(seconds * sample_rate))
-    lo = max(0, (n - keep) // 2)
-    cropped = np.zeros_like(np.asarray(h, dtype=float))
-    cropped[lo:lo + keep] = np.asarray(h, dtype=float)[lo:lo + keep]
-    total = optimal_snr(h, sample_rate, psd, f_low=f_low)
+    w = np.asarray(whitened, dtype=float)
+    total = float(np.sum(w ** 2))
     if total <= 0:
         return 0.0
-    return float((optimal_snr(cropped, sample_rate, psd, f_low=f_low) / total) ** 2)
+    keep = int(round(seconds * sample_rate))
+    lo = max(0, (len(w) - keep) // 2)
+    return float(np.sum(w[lo:lo + keep] ** 2) / total)
 
 
 class InjectionEngine:

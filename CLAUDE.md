@@ -283,9 +283,32 @@ This also settles the vendored comparison retroactively: 0.188 vs 0.240 is a dif
 of 0.052, barely outside what our own seeds span among themselves. Even ignoring the
 training-data confound, one seed against one checkpoint could not have resolved it.
 
-**Still not done:** wiring the CNN glitch gate into the scan (`eval/specialists.py` is
-ported and tested, not yet applied), the LR cascade, VT. The evaluation fold has never
-been touched and stays that way (C4).
+**THE GLITCH GATE IS IN, AND IT IS THE FIRST CHANGE MEASURED TO HELP.** It keeps ~1% of
+loud background and 89% of injections. At fixed efficiency, three seeds each:
+
+| efficiency | FAR ungated [1/yr] | FAR gated [1/yr] | factor |
+|---|---|---|---|
+| 0.10 | 52.3 [48.7-56.1] | 3.48 [3.48-3.48] | **15x** |
+| 0.15 | 62.8 [54.0-70.0] | 3.71 [3.48-3.83] | **17x** |
+| 0.20 | 111.9 [60.6-159.5] | 4.00 [3.83-4.18] | **28x** |
+
+Seed ranges do not overlap, by more than an order of magnitude — far outside the 0.045
+efficiency spread. Real effect, not a reseeding.
+
+**What it does NOT do: raise the ceiling.** Both saturate near 0.24, which is
+0.257 x 0.889 — the fraction reaching the massive channel times the gate's signal
+retention. The ceiling is set by coherence + morphology upstream. The gate detects the
+SAME sources at a FAR 1-2 orders of magnitude lower.
+
+Caveat: the gated background is 11/13/20 events over 11.5 yr, so individual rates carry
+~30% Poisson error. The factor survives because the populations are >10x that apart.
+
+This is not our improvement — it is a component upstream already has that we were
+missing. What is new is that the measurement chain detected it cleanly at a size the seed
+spread cannot explain.
+
+**Still not done:** the LR cascade, VT, and any change that is actually ours. The
+evaluation fold has never been touched and stays that way (C4).
 
 **Facts established by reading and running the upstream release** (these change what to
 build, so they belong here rather than in results.tex):

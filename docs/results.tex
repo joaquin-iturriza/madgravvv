@@ -673,6 +673,91 @@ and the comparison was never interpretable, a single-seed difference of that siz
 not have been resolvable in any case. The seed spread had to exist before that number
 could be read at all, and it did not.
 
+\section{The glitch gate: the first change measured to help}
+\label{sec:gate}
+
+The deployed pipeline ends with a CNN gate that our reproduction did not have:
+$\max(\mathrm{HM}, \mathrm{LM}) \geq 0.5$ from two specialist networks, cropped at the
+glitch arm's Grad-CAM attention peak (Section~\ref{sec:coherence} covers the two vetoes
+that precede it). Section~\ref{sec:far} identified the loud-noise tail as what limits the
+search; this is the component whose only job is to decide whether a loud thing is a
+glitch. Adding it is the first change this project has measured, and the measurement is
+the one it was built to make.
+
+\subsection*{What the gate does to each population}
+
+Across three seeds, in the mass-conditioned channel:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+ & Background kept & Injections kept \\
+\midrule
+seed 42 & $0.0113$ & $0.889$ \\
+seed 43 & $0.0112$ & $0.889$ \\
+seed 44 & $0.0065$ & $0.889$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+About one per cent of loud background survives and nearly nine tenths of injections do.
+The injection figure is identical across seeds because the gate reads the arm and the
+specialists, not the autoencoder, and the injection set is drawn from a fixed seed; the
+background figure varies because which triggers are loud depends on the front end.
+
+\subsection*{The effect at fixed efficiency}
+
+Both configurations were evaluated identically: scan the mass-conditioned threshold, read
+off the false-alarm rate the surviving background produces and the fraction of injections
+above it. Three seeds each.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Efficiency & FAR without the gate [1/yr] & FAR with it [1/yr] & Factor \\
+\midrule
+$0.10$ & $52.3$ \ [48.7--56.1]  & $3.48$ \ [3.48--3.48] & $15\times$ \\
+$0.15$ & $62.8$ \ [54.0--70.0]  & $3.71$ \ [3.48--3.83] & $17\times$ \\
+$0.20$ & $111.9$ \ [60.6--159.5] & $4.00$ \ [3.83--4.18] & $28\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Brackets are the range over the three seeds. They do not overlap between the two
+configurations at any of the three efficiencies, and the separation is more than an order
+of magnitude --- far outside the seed spread of $0.045$ in efficiency established in
+Section~\ref{sec:baseline}. This is a real effect and not a reseeding.
+
+Read the other way: without the gate, nothing is detected at any false-alarm rate below
+about 15/yr. With it, a fifth of the injection population is recovered at 4/yr.
+
+\subsection*{What it does not do}
+
+Both configurations saturate at an efficiency near $0.24$, and the gate does not raise
+that. The ceiling is the fraction of injections that reach the mass-conditioned channel
+at all and then survive the gate --- $0.257 \times 0.889 = 0.229$ --- so it is set by the
+coherence and morphology cuts upstream of it, exactly as Section~\ref{sec:headtohead}
+found for the front end. The gate does not detect more sources; it detects the same
+sources at a false-alarm rate one to two orders of magnitude lower.
+
+\subsection*{Caveats}
+
+The gated background is small by construction: 11, 13 and 20 surviving triggers across
+the three seeds over 11.5~yr. A rate estimated from eleven events carries a Poisson
+uncertainty around 30\%, so the individual gated numbers are soft. The \emph{factor} is
+not, because the two populations are separated by more than ten times that uncertainty.
+
+The gate is applied to the loudest 4000 triggers per channel rather than to all 72
+million, matching what upstream does and exact for any threshold above the resulting
+floor; the analysis refuses to quote a rate whose threshold falls below it.
+
+And this is not our improvement. It is a component the published pipeline already has,
+which our reproduction had been missing, and completing it moves us toward the baseline
+rather than past it. What is new is that the measurement chain built in
+Sections~\ref{sec:far} and~\ref{sec:coherence} detected the change cleanly, at a size the
+seed spread cannot explain. That is the first evidence that the instrument can do the job
+the improvement programme needs it to do.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

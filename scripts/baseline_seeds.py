@@ -29,7 +29,7 @@ sys.path.insert(0, str(REPO / "src"))
 from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval.far import TrialsFactor, threshold_at_far  # noqa: E402
 
-TARGETS = (100.0, 10.0, 1.0)
+TARGETS = (100.0, 30.0, 10.0, 3.0, 1.0)
 EDGES = [6, 8, 10, 12, 15, 20, 25, 32, 40]
 
 

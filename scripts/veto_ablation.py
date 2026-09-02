@@ -72,6 +72,20 @@ def main() -> int:
         s["sh"] = (s["h"] - norm["muH"]) / norm["sdH"]
         s["sl"] = (s["l"] - norm["muL"]) / norm["sdL"]
 
+    # Slides wrap: `j = (arange(n) - k) % n`, so lag k and lag k+n give the IDENTICAL
+    # pairing. Past that point extra lags duplicate triggers and duplicate the livetime
+    # they are divided by, so the FAR is unchanged and the threshold is unchanged -- they
+    # buy literally nothing while costing full compute. Cap and say so, rather than
+    # quoting "63 yr of background" that is eight copies of eight.
+    shift = max(1, int(round(args.lag_step / stride)))
+    min_n = min(len(s["sh"]) for s in segs)
+    max_lags = 2 * ((min_n - 1) // shift)
+    if args.n_lags > max_lags:
+        print(f"capping {args.n_lags} lags at {max_lags}: beyond that a slide repeats a "
+              f"pairing it has already used (segments are {min_n} points, lag step "
+              f"{shift})")
+        args.n_lags = max_lags
+
     plan = make_slide_plan(coincident_s, args.n_lags, lag_step_s=args.lag_step)
     half = int(round(0.5 * args.cluster_seconds / stride))
 

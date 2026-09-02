@@ -261,9 +261,31 @@ NOT supported, though tempting: that our heavier noise tail (max net sigma 32.4 
 is a defect of the objective. It is equally "a model fitted on 20k tiles handles rare
 noise badly". Keep it as a hypothesis to test across our own seeds, not a diagnosis.
 
-**Still not done:** 3-seed baseline (needed before ANY improvement claim), the glitch
-arm, the specialists, the LR cascade, VT. The evaluation fold has never been touched and
-stays that way (C4).
+**THE BASELINE (three seeds, identical recipe, differing only in init and batch order):**
+
+| seed | efficiency @ FAR 100/yr |
+|---|---|
+| 42 | 0.1884 |
+| 43 | 0.1774 |
+| 44 | 0.2220 |
+| **mean** | **0.196** |
+| range | **0.045** |
+
+**A change must move efficiency at FAR 100/yr by more than 0.045 to mean anything.**
+Anything smaller is a different random seed. All three seeds are exactly 0.000 at 10/yr
+and 1/yr, so those rates cannot discriminate between anything yet and are not usable as
+an outcome measure.
+
+Note the coarseness: 0.045 on 0.196 is +-12%, so only large effects are detectable with
+three seeds. Budget more seeds BEFORE running a change expected to give a few per cent.
+
+This also settles the vendored comparison retroactively: 0.188 vs 0.240 is a difference
+of 0.052, barely outside what our own seeds span among themselves. Even ignoring the
+training-data confound, one seed against one checkpoint could not have resolved it.
+
+**Still not done:** wiring the CNN glitch gate into the scan (`eval/specialists.py` is
+ported and tested, not yet applied), the LR cascade, VT. The evaluation fold has never
+been touched and stays that way (C4).
 
 **Facts established by reading and running the upstream release** (these change what to
 build, so they belong here rather than in results.tex):

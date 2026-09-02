@@ -630,6 +630,49 @@ attributing it to a defect in our objective rather than to a model fitted on twe
 thousand tiles handling rare noise badly is not something these data can do. The
 observation is kept as a hypothesis to test against our own seeds, not as a diagnosis.
 
+\section{The baseline, and the bar a change has to clear}
+\label{sec:baseline}
+
+Three seeds of the identical recipe --- same tile banks, same injections, same schedule,
+differing only in initialisation and batch order --- carried through the whole chain:
+stage 1, stage 2, background scan, 7196 lags, vetoes, efficiency.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Seed & Efficiency at FAR 100/yr & Largest background net $\sigma$ \\
+\midrule
+42 & $0.1884$ & $32.4$ \\
+43 & $0.1774$ & $34.9$ \\
+44 & $0.2220$ & $35.1$ \\
+\midrule
+mean & $\mathbf{0.196}$ & \\
+range & $0.045$ & \\
+s.d.\ & $0.023$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Baseline: efficiency $0.196$ at a false-alarm rate of 100/yr, with three seeds
+spanning $0.177$ to $0.222$. A change must move the number by more than $0.045$ before it
+means anything.} All three seeds give exactly zero at 10/yr and 1/yr, so those rates
+cannot discriminate between anything yet and are not usable as an outcome measure until
+the background or the vetoes improve.
+
+This is the first quantity in the project that can decide whether a change helped, and it
+is worth being blunt about how coarse it is. A seed range of $0.045$ on a mean of $0.196$
+is $\pm 12\%$, so only fairly large effects are detectable with three seeds. A change
+expected to produce a few per cent will need more seeds to resolve, and that cost should
+be budgeted before the change is run rather than discovered afterwards.
+
+It also settles a comparison made earlier in this note. Section~\ref{sec:headtohead}
+measured $0.188$ for one seed of our pipeline against $0.240$ for the distributed
+weights, a difference of $0.052$ --- barely outside the $0.045$ that our own seeds span
+among themselves. Even setting aside that the two models were trained on different data
+and the comparison was never interpretable, a single-seed difference of that size would
+not have been resolvable in any case. The seed spread had to exist before that number
+could be read at all, and it did not.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

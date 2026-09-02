@@ -90,12 +90,12 @@ def main() -> int:
             continue
         a = np.array(vals)
         summary[str(t)] = {"mean": float(a.mean()), "min": float(a.min()),
-                           "max": float(a.max()), "range": float(a.ptp()),
+                           "max": float(a.max()), "range": float(np.ptp(a)),
                            "sd": float(a.std(ddof=1)) if len(a) > 1 else None,
                            "n_seeds": len(a), "values": vals}
         sd = f"{a.std(ddof=1):>9.4f}" if len(a) > 1 else f"{'-':>9}"
         print(f"{t:>11.0f}{a.mean():>9.4f}{a.min():>9.4f}{a.max():>9.4f}"
-              f"{a.ptp():>9.4f}{sd}")
+              f"{np.ptp(a):>9.4f}{sd}")
 
     top = TARGETS[0]
     if str(top) in summary and summary[str(top)]["n_seeds"] > 1:

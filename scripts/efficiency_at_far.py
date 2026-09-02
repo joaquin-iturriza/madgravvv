@@ -80,8 +80,8 @@ def main() -> int:
     trials = TrialsFactor(2, 2) if args.trials == 4 else args.trials
     T_yr = T / (365.25 * 86400.0)
     floor = (trials.value if hasattr(trials, "value") else trials) / T_yr
-    print(f"background {T_yr:.2f} yr, {background.size} stored triggers; "
-          f"floor {floor:.3g}/yr")
+    print(f"background {T_yr:.2f} yr; floor {floor:.3g}/yr; stored triggers: "
+          + ", ".join(f"{c} {v.size}" for c, v in channels.items()))
     print(f"foreground {net.size} coincident injections, network SNR "
           f"{snr.min():.1f}-{snr.max():.1f}\n")
 
@@ -126,6 +126,25 @@ def main() -> int:
     print(f"injections: max {net.max():.2f}, median {np.median(net):.2f}; "
           f"in the massive channel max "
           f"{net[massive].max() if massive.any() else float('nan'):.2f}")
+    # Efficiency at a handful of thresholds is a coarse view when it is near zero. The
+    # FAR each injection actually achieves says how far away it is, and in which
+    # direction, which is the difference between "needs a little more background" and
+    # "the statistic does not separate these populations at all".
+    inj_far = np.where(
+        massive,
+        far_of(net, channels["massive"], T, trials=trials) if channels["massive"].size else np.inf,
+        far_of(net, channels["general"], T, trials=trials) if channels["general"].size else np.inf,
+    )
+    print(f"\nFAR achieved by the injections themselves [1/yr]")
+    for lo_e, hi_e in ((6, 10), (10, 15), (15, 25), (25, 40)):
+        m = (snr >= lo_e) & (snr < hi_e)
+        if m.any():
+            print(f"  SNR {lo_e:>2}-{hi_e:<3} n={int(m.sum()):>5}  "
+                  f"median {np.median(inj_far[m]):>12.3g}  "
+                  f"best {inj_far[m].min():>12.3g}")
+    print(f"  loudest injection overall reaches FAR {inj_far.min():.3g}/yr "
+          f"(floor {floor:.3g}/yr)")
+
     print(f"\nefficiency vs total mass, at FAR {targets[-1]:.0f}/yr")
     thr = results[targets[-1]]["threshold"]
     for lo_e, hi_e in ((20, 60), (60, 100), (100, 240)):

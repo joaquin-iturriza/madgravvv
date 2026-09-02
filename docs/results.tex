@@ -464,6 +464,106 @@ shipped calibration quotes 47.4~yr of background from a correspondingly larger s
 real data. The thresholds above should be read as resolving the shape of the tail, not
 as a precise measurement of its extreme end.
 
+\section{The vetoes, and where the efficiency is actually lost}
+\label{sec:coherence}
+
+Section~\ref{sec:far} measured the front end alone and found zero efficiency at every
+resolvable false-alarm rate, and argued that the missing discrimination has to live in
+the vetoes. It does. Adding them is the largest single change measured in this note.
+
+\subsection*{What was added}
+
+Two quantities and a branch, ported from \texttt{massive\_pipeline.py} with constants
+from the shipped \texttt{massive\_calibration\_BA.json}, and checked against the
+vendored methods themselves to $10^{-6}$:
+
+\begin{itemize}
+\item \textbf{Coherence}, band-limited to 20--500 Hz on the central 1~s and maximised
+over $\pm 45$ samples: $\max_\tau |2\langle a, b_\tau\rangle| / (|a|^2 + |b|^2)$. The
+symmetric norm is not a Pearson correlation, and the difference is the point: it is
+maximised only when the two detectors carry comparable energy, so a loud glitch in one
+against quiet data in the other --- the dominant background of a coincident search ---
+scores near zero, where Pearson would normalise the mismatch away.
+\item \textbf{Centroid}, the energy-weighted mean frequency of the central 0.5~s in
+20--400 Hz, required below $f_\mathrm{cut} = 190.8$~Hz in both detectors.
+\item \textbf{The branch}: a trigger passing both is ranked against a mass-conditioned
+background, everything else against a general one. The shipped calibration stores
+exactly this pair, as \texttt{far\_curve\_cond\_coh} and \texttt{far\_curve\_global\_coh}.
+Pooling them would be a different and much weaker search.
+\end{itemize}
+
+\subsection*{The result}
+
+The veto is an extremely strong background rejection: of the 40.2 million clustered
+time-slide triggers, \textbf{0.11\%} survive both cuts. Over 6.39~yr of background the
+mass-conditioned channel retains 547 triggers above net $\sigma = 6$ against 500\,864 in
+the general channel, and the threshold at a false-alarm rate of 100/yr falls from
+$21.8$ to $\mathbf{8.2}$.
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+FAR [1/yr] & Threshold (massive) & Threshold (general) & Efficiency & 68\% interval \\
+\midrule
+100 & $8.23$  & $21.76$ & $\mathbf{0.187}$ & $[0.183, 0.192]$ \\
+10  & $20.87$ & $27.21$ & $0.000$ & $[0.000, 0.000]$ \\
+1   & $31.40$ & $32.43$ & $0.000$ & $[0.000, 0.000]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Efficiency at 100/yr rises monotonically with network SNR, from $0.002$ at SNR 10--12 to
+$0.333$ at SNR 32--40. Every detection comes from the mass-conditioned channel: the
+loudest injection in the campaign reaches net $\sigma = 19.3$ and the general channel's
+threshold at 100/yr is $21.8$, so nothing is recovered outside the veto.
+
+\subsection*{Where the efficiency is lost}
+
+The vetoes cost injections as well as background: only \textbf{25.7\%} of sources reach
+the mass-conditioned channel. Since all of the efficiency comes from that channel, the
+two numbers combine exactly:
+\[
+0.187 = 0.257 \times 0.728,
+\]
+that is, \emph{73\% of the injections that reach the channel clear its threshold}, and
+the overall figure is set almost entirely by how few get there. The gate, not the
+statistic, is the binding constraint at 100/yr.
+
+Splitting the gate identifies which half. Coherence behaves as a veto should: it responds
+to signal amplitude, with median injection coherence rising from $0.127$ at SNR 6--10 to
+$0.302$ at SNR 25--40 and the pass fraction from $0.49$ to $0.78$. The centroid cut does
+not. Median injection centroid is $194.5$~Hz against a $190.8$~Hz threshold --- the cut
+sits essentially at the median --- and it is flat in total mass: $194.9$, $195.1$ and
+$194.2$~Hz across $20$--$60$, $60$--$100$ and $100$--$240\,M_\odot$. That flatness has a
+simple explanation. Whitened noise band-limited to 20--400~Hz has an energy-weighted mean
+frequency near 210~Hz by construction, and in a 0.5~s window a source at these amplitudes
+contributes a minority of the band energy, so the centroid is largely measuring the noise
+rather than the source. It is a gate calibrated for events far louder than a
+population drawn down to SNR 6.
+
+So the concrete target is the morphology gate: it discards 74\% of injections for a
+discrimination that is nearly mass-independent on this population, and recovering that
+loss without admitting background would take efficiency at 100/yr from $0.19$ toward
+$0.73$.
+
+\subsection*{Why 10/yr and 1/yr are still zero, and what would change it}
+
+The binding constraint at the deeper rates has moved, and it is no longer the statistic.
+The mass-conditioned channel holds 547 background triggers over 6.39~yr, so at a trials
+factor of 4 the threshold at 10/yr is the 15th largest of them and at 1/yr it is the
+single largest, $31.4$. A threshold set by one event is not a measurement. The loudest
+injection reaches a false-alarm rate of $13.2$/yr, and the median at SNR 25--40 is
+$1.1\times10^5$/yr, so the population is a factor of $\sim$13 from the 1/yr level rather
+than orders of magnitude away.
+
+Two things would move it, and they are different in kind. More lags would deepen the
+quantile --- 20\,000 lags would put the 1/yr threshold at the 16th largest of $\sim$5500
+triggers instead of the largest of 547 --- but they reuse the same 1.17~d of distinct
+noise, so they buy resolution rather than information. More distinct background livetime
+is what actually buys information, and this analysis uses 30\% of one fold of a
+56-segment set. Upstream's shipped calibration quotes 47.4~yr from a correspondingly
+larger stretch.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

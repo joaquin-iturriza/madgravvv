@@ -210,8 +210,31 @@ tail. A change that sharpens separation and leaves the glitch tail alone buys no
 fixed FAR. **Coherence is therefore a prerequisite for evaluating any front-end change,
 not a later phase.**
 
-**Still not done:** coherence, the glitch arm, specialists, the LR cascade, VT. The
-evaluation fold has never been touched and stays that way (C4).
+**Then the vetoes were added, and they are the largest single change measured so far.**
+Coherence (band-limited symmetric-norm, +-45 lags) and the centroid gate, ported from
+`massive_pipeline.py` and checked against the vendored methods to 1e-6, with the
+two-channel structure the deployed pipeline uses. **0.11% of loud background triggers
+survive** — the threshold at FAR 100/yr falls from 21.8 to 8.2, and efficiency goes
+**0.000 -> 0.187**, rising to 0.333 at SNR 32-40.
+
+**Where the efficiency is lost is now measured, and it is the morphology gate.** Only
+25.7% of injections reach the mass-conditioned channel, and 0.187 = 0.257 x 0.728 — 73%
+of what gets there clears the threshold. Coherence behaves as a veto should (median
+injection coherence 0.127 -> 0.302 with SNR). The centroid does not: median 194.5 Hz
+against a 190.8 Hz cut, and **flat in total mass** (194.9 / 195.1 / 194.2 Hz across
+20-60, 60-100, 100-240 Msun) — whitened noise in a 20-400 Hz band has mean frequency
+~210 Hz by construction, so at these amplitudes the centroid measures the noise, not the
+source. Recovering that 74% without admitting background is worth 0.19 -> 0.73.
+
+**10/yr and 1/yr are still zero, and the constraint is background sample size, not the
+statistic.** The massive channel holds 547 triggers over 6.39 yr, so the 1/yr threshold
+is the single largest of them (31.4) — not a measurement. The loudest injection reaches
+FAR 13.2/yr, a factor of ~13 away. More lags buy resolution; only more distinct livetime
+buys information, and this uses 30% of one fold of a 56-segment set against upstream's
+47.4 yr.
+
+**Still not done:** the glitch arm, the specialists, the LR cascade, VT. The evaluation
+fold has never been touched and stays that way (C4).
 
 **Facts established by reading and running the upstream release** (these change what to
 build, so they belong here rather than in results.tex):

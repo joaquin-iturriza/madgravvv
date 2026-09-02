@@ -577,7 +577,13 @@ the runtime check in `param_budget.py`.
   against the vendored pipeline's own function to 1e-6 relative RMS. **Any new step in
   the representation gets a test that imports upstream and compares, not a test that
   checks the output looks reasonable** — every shape check (finite, sensible tile means,
-  a falling loss curve) passed happily throughout.
+  a falling loss curve) passed happily throughout. **Tile-level aggregates cannot detect
+  this class of bug**: rebuilt from the *identical* windows, correct and broken tiles have
+  a median per-pixel correlation of **0.003**, yet mean (0.300 vs 0.277), std (0.169 vs
+  0.171), constant-tile fraction (0 vs 0) and low/high band ratio (0.99 vs 0.99) all
+  agree. The Q-transform runs with `norm="median"`, which divides each frequency row by
+  its own median, and per-tile min-max removes what scale is left — so the representation
+  is close to blind to whether whitening happened at all.
 - **The deployed O3a search notches the O1 line list.** `_whiten` hard-codes
   `line_configuration="o1"` even though `infer_line_configuration()` would return `"o3a"`.
   We match the deployed behaviour (`data.line_configuration: o1`) because matching the

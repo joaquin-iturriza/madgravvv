@@ -136,6 +136,20 @@ reconstruction error and tile brightness was a property of that red-tilted input
 the model. Nothing in Section~\ref{sec:repro} is affected, because the reproduction gate
 executes upstream's own code.
 
+The reason this survived as long as it did is worth recording, because it is a
+property of the representation rather than an accident. Rebuilding the tile bank from
+the identical noise windows with the corrected whitening gives tiles whose per-pixel
+correlation with the old ones has median $0.003$ (5th to 95th percentile $-0.038$ to
+$+0.039$): the two banks share essentially nothing. Yet their aggregate statistics are
+almost identical --- mean pixel value $0.300$ against $0.277$, pixel standard deviation
+$0.169$ against $0.171$, no constant tiles in either, and a ratio of low-band to
+high-band mean intensity of $0.99$ in both. The Q-transform is applied with
+\texttt{norm="median"}, which normalises each frequency row by its own median and so
+removes most of the spectral tilt that whitening establishes, and the subsequent
+per-tile min--max normalisation removes the rest of the scale. Every aggregate check
+available on the tiles is therefore nearly blind to whether the strain was whitened at
+all, and every such check passed throughout.
+
 Our implementation now agrees with \texttt{\_whiten} to a relative RMS difference of
 $4\times10^{-8}$ on the retained 2~s, which is the float32 round-trip of upstream's own
 output, and that agreement is asserted by a test that imports the vendored pipeline
@@ -148,6 +162,81 @@ calibration-line lists and an \texttt{infer\_line\_configuration()} that selects
 L1 dither lines. We match the deployed behaviour by default, since matching the shipped
 weights takes precedence over notching the physically appropriate lines, and treat the
 O3a list as an ablation.
+
+\section{What the distributed score responds to}
+\label{sec:stage1}
+
+With the whitening corrected, the tile bank was rebuilt (19\,991 training and 2002
+validation tiles from the training fold of the O3a background set) and the
+reimplemented stage-1 autoencoder retrained on the upstream recipe: Adam at $10^{-3}$,
+weight decay $10^{-5}$, batch 64, \texttt{ReduceLROnPlateau}(0.5, 5), ten epochs,
+seed 42. Both that model and the distributed weights were then scored on the same 2002
+held-out noise tiles, and each score distribution standardised to zero mean and unit
+variance so that the comparison is of the tail that sets the false-alarm rate rather
+than of an arbitrary normalisation.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Standardised score & Retrained (stage 1) & Distributed (stage 2) \\
+\midrule
+median            & $-0.13$ & $-0.18$ \\
+99th percentile   & $+2.49$ & $+3.31$ \\
+99.9th percentile & $+3.92$ & $+6.08$ \\
+maximum           & $+18.16$ & $+9.71$ \\
+skewness          & $+3.64$ & $+2.00$ \\
+excess kurtosis   & $+55.1$ & $+9.26$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The two models disagree about which tiles are difficult, and strongly: their per-tile
+errors have a Spearman rank correlation of $-0.804$.
+
+Ranking each model's error against elementary properties of the tile explains that
+disagreement completely, and yields the more consequential measurement:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Tile property (Spearman $\rho$ with error) & Retrained & Distributed \\
+\midrule
+mean pixel value             & $+0.86$ & $-0.95$ \\
+pixel standard deviation     & $+0.91$ & $-0.87$ \\
+fraction of pixels above 0.5 & $+0.90$ & $-0.94$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The retrained model finds busy, bright tiles hard, which is what a reconstruction
+objective should do: there is more structure to reproduce. The distributed model finds
+\emph{dark, sparse} tiles hard, and does so almost deterministically --- a rank
+correlation of $-0.95$ against the mean pixel value means the ordering that the shipped
+per-detector significance imposes on noise tiles is very nearly reproduced by a single
+scalar computed without reference to the network's 251\,394 parameters.
+
+The mechanism is the weak-supervision margin acting on a min--max normalised input. The
+margin is trained to raise reconstruction error on signal tiles, and after per-tile
+min--max normalisation --- which sets the dynamic range from the loudest pixel --- a
+signal tile is exactly a sparse bright track on an otherwise dark field. The injection
+ladder of Section~\ref{sec:whitening} shows the same effect from the other side: adding
+a louder signal to a fixed noise window drives the tile \emph{mean} monotonically down,
+from $-0.054$ at network SNR 8 to $-0.163$ at SNR 40, because the injected chirp becomes
+the pixel that sets the normalisation.
+
+Two consequences, of different weight. First, and with the smaller weight: this is not
+yet the reproduction requirement of Section~\ref{sec:repro}. The retrained model is
+stage 1 and the distributed one is stage 2, so a sign reversal between them is expected
+rather than anomalous, and the requirement cannot be assessed until the margin fine-tune
+is reproduced --- which needs the injection campaign that
+Section~\ref{sec:whitening} establishes is now available. Second, and independently of
+any comparison: the $\rho = -0.95$ result is a statement about the distributed weights
+alone. It says that a substantial part of the shipped score is a response to tile
+sparsity rather than to any property specific to the noise distribution, and that
+per-tile min--max normalisation is what makes sparsity and loudness two views of the
+same quantity. That is direct support for both a tile-independent amplitude scaling
+(R2) and a learned readout in place of reconstruction error (Phase 4), and it is
+measured on the shipped model rather than argued from its architecture.
 
 \section{Results}
 

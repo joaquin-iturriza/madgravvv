@@ -217,14 +217,21 @@ two-channel structure the deployed pipeline uses. **0.11% of loud background tri
 survive** — the threshold at FAR 100/yr falls from 21.8 to 8.2, and efficiency goes
 **0.000 -> 0.187**, rising to 0.333 at SNR 32-40.
 
-**Where the efficiency is lost is now measured, and it is the morphology gate.** Only
-25.7% of injections reach the mass-conditioned channel, and 0.187 = 0.257 x 0.728 — 73%
-of what gets there clears the threshold. Coherence behaves as a veto should (median
-injection coherence 0.127 -> 0.302 with SNR). The centroid does not: median 194.5 Hz
-against a 190.8 Hz cut, and **flat in total mass** (194.9 / 195.1 / 194.2 Hz across
-20-60, 60-100, 100-240 Msun) — whitened noise in a 20-400 Hz band has mean frequency
-~210 Hz by construction, so at these amplitudes the centroid measures the noise, not the
-source. Recovering that 74% without admitting background is worth 0.19 -> 0.73.
+**Both vetoes earn their cost, and a veto ablation is the only way to know that.**
+Varying only the channel definition: none 0.000 / coherence-only 0.006 / morphology-only
+0.000 / **both 0.187** (efficiency at FAR 100/yr). Dropping the morphology gate costs a
+factor of 30. It discards 57% of injections AND 96% of background, and the second number
+decides the trade. **Judging a veto from its signal cost alone gets the sign wrong** — an
+earlier draft of results.tex claimed the gate was throwing away 74% for nothing and that
+fixing it was worth 0.19 -> 0.73; the ablation refuted it. Always run
+`scripts/veto_ablation.py` before making a claim about a cut.
+
+The pair combines near-optimally: nearly independent on background (0.0468 x 0.0412 =
+0.0019 predicted vs 0.0011 observed — they reject different noise), nearly nested on
+signal (99.2% of injections passing morphology also pass coherence). The centroid IS
+nearly mass-independent (194.9 / 195.1 / 194.2 Hz across 20-60, 60-100, 100-240 Msun) so
+it is not selecting by merger frequency — it is a noise-property cut wearing a
+signal-property name, and worth 24x in background regardless.
 
 **10/yr and 1/yr are still zero, and the constraint is background sample size, not the
 statistic.** The massive channel holds 547 triggers over 6.39 yr, so the 1/yr threshold

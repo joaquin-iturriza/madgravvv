@@ -517,34 +517,58 @@ $0.333$ at SNR 32--40. Every detection comes from the mass-conditioned channel: 
 loudest injection in the campaign reaches net $\sigma = 19.3$ and the general channel's
 threshold at 100/yr is $21.8$, so nothing is recovered outside the veto.
 
-\subsection*{Where the efficiency is lost}
+\subsection*{What each veto contributes}
 
-The vetoes cost injections as well as background: only \textbf{25.7\%} of sources reach
-the mass-conditioned channel. Since all of the efficiency comes from that channel, the
-two numbers combine exactly:
-\[
-0.187 = 0.257 \times 0.728,
-\]
-that is, \emph{73\% of the injections that reach the channel clear its threshold}, and
-the overall figure is set almost entirely by how few get there. The gate, not the
-statistic, is the binding constraint at 100/yr.
+The vetoes cost injections as well as background: only 25.7\% of sources reach the
+mass-conditioned channel, and since all of the efficiency comes from that channel the
+two numbers factor exactly as $0.187 = 0.257 \times 0.728$. It is tempting to read that
+as a diagnosis --- three quarters of the signal is being thrown away, so recover it ---
+and an earlier draft of this note did exactly that, on the strength of the centroid being
+nearly mass-independent. Measuring it says the opposite.
 
-Splitting the gate identifies which half. Coherence behaves as a veto should: it responds
-to signal amplitude, with median injection coherence rising from $0.127$ at SNR 6--10 to
-$0.302$ at SNR 25--40 and the pass fraction from $0.49$ to $0.78$. The centroid cut does
-not. Median injection centroid is $194.5$~Hz against a $190.8$~Hz threshold --- the cut
-sits essentially at the median --- and it is flat in total mass: $194.9$, $195.1$ and
-$194.2$~Hz across $20$--$60$, $60$--$100$ and $100$--$240\,M_\odot$. That flatness has a
-simple explanation. Whitened noise band-limited to 20--400~Hz has an energy-weighted mean
-frequency near 210~Hz by construction, and in a 0.5~s window a source at these amplitudes
-contributes a minority of the band energy, so the centroid is largely measuring the noise
-rather than the source. It is a gate calibrated for events far louder than a
-population drawn down to SNR 6.
+Holding everything else fixed and varying only the definition of the channel:
 
-So the concrete target is the morphology gate: it discards 74\% of injections for a
-discrimination that is nearly mass-independent on this population, and recovering that
-loss without admitting background would take efficiency at 100/yr from $0.19$ toward
-$0.73$.
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+Channel definition & Background kept & Injections kept & Efficiency & Threshold \\
+\midrule
+none (front end only) & $1.0000$ & $1.000$ & $0.000$ & $22.05$ \\
+coherence only        & $0.0468$ & $0.703$ & $0.006$ & $13.44$ \\
+morphology only       & $0.0412$ & $0.259$ & $0.000$ & $20.59$ \\
+both (deployed)       & $0.0011$ & $0.257$ & $\mathbf{0.187}$ & $8.23$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+(efficiency at a false-alarm rate of 100/yr; threshold in net $\sigma$ at the same rate.)
+
+Dropping the morphology gate costs a factor of thirty in efficiency, not gains one. The
+gate discards 57\% of injections and 96\% of background, and it is the second number
+that decides the trade. Judging a veto from its signal cost alone is not a
+half-measurement, it is the wrong sign.
+
+The pair combines about as well as a pair can. On background they are close to
+independent --- $0.0468 \times 0.0412 = 0.0019$ against an observed $0.0011$, so they
+reject largely different noise populations. On signal they are close to nested: 25.9\% of
+injections pass the morphology gate and 99.2\% of those also pass coherence, so the
+second cut costs almost nothing once the first has been applied. Independent on noise and
+redundant on signal is exactly the property one wants from two vetoes.
+
+The observation that motivated the wrong diagnosis survives, with a different meaning.
+The centroid is nearly mass-independent on this population --- median $194.5$~Hz against
+a $190.8$~Hz cut, and $194.9$, $195.1$, $194.2$~Hz across $20$--$60$, $60$--$100$ and
+$100$--$240\,M_\odot$ --- so it is not selecting heavy mergers by their merger frequency,
+which is the physical motivation the name suggests. Whitened noise band-limited to
+20--400~Hz has an energy-weighted mean frequency near 210~Hz by construction, and in a
+0.5~s window a source at these amplitudes is a minority of the band energy. But the gate
+does not need to track the source to be useful: it is cutting on where the \emph{noise}
+energy sits, which separates glitch classes, and empirically that is worth a factor of 24
+in background. It is a noise-property cut wearing a signal-property name.
+
+Whether a morphology statistic that did track the source could hold more signal at the
+same background rejection remains open, and is a candidate change --- but it is a
+question about improving something that works, not about repairing something broken.
 
 \subsection*{Why 10/yr and 1/yr are still zero, and what would change it}
 

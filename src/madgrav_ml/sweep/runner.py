@@ -135,6 +135,7 @@ class SweepRunner:
             trial.fold = {
                 "eval_fold": self.guard.eval_fold,
                 "hpo_val_frac": self.guard.hpo_val_frac,
+                "hpo_bg_frac": self.guard.hpo_bg_frac,
                 "eval_fold_reads": self.guard._final_reports,
             }
             self.trials.append(trial)

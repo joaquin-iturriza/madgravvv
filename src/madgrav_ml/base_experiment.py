@@ -195,6 +195,7 @@ class BaseExperiment:
             eval_fold=fcfg.eval_fold,
             n_folds=fcfg.n_folds,
             hpo_val_frac=fcfg.hpo_val_frac,
+            hpo_bg_frac=fcfg.get("hpo_bg_frac", 0.30),
             audit_path=os.path.join(self.cfg.run_dir, "fold_audit.jsonl")
             if self.cfg.save
             else None,

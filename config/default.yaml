@@ -26,7 +26,13 @@ enforce_param_budget: true
 folds:
   n_folds: 2
   eval_fold: 1
-  hpo_val_frac: 0.25
+  # Training fold splits three ways in GPS order: fit / select / background.
+  # The background share is the one that limits what false-alarm rate can be quoted at
+  # all (it is pure livetime), while the fit share is limited by how many tiles we build
+  # rather than by livetime -- there are ~1.4M distinct windows and a bank draws 20k.
+  # So the background gets the larger of the two non-fit shares.
+  hpo_val_frac: 0.20
+  hpo_bg_frac: 0.30
   segment_files:
     H1: .reference/MADGRAV/search_mode/o3a_bg_segments_56.json
     L1: .reference/MADGRAV/search_mode/o3a_bg_segments_56.json

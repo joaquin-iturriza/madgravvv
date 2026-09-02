@@ -66,15 +66,23 @@ class Split(str, Enum):
     TRAIN = "train"          # the whole training fold
     HPO_TRAIN = "hpo_train"  # training-fold subset used to fit HPO trials
     HPO_VAL = "hpo_val"      # training-fold subset used to score HPO trials
+    HPO_BG = "hpo_bg"        # training-fold subset used ONLY to estimate background
     EVAL = "eval"            # the evaluation fold — quarantined
 
 
 # What each phase may read. Anything not listed raises.
+# HPO_BG is deliberately absent from TRAINING and HPO. A false-alarm rate is a
+# statement about noise the model has never been fitted to and never been *selected*
+# against, and checkpoint selection counts: our stage-2 checkpoint is chosen to maximise
+# detection above a threshold set by HPO_VAL's noise, so HPO_VAL's tail is mildly
+# optimised and a FAR quoted against it would be optimistic. HPO_BG exists so the
+# threshold has somewhere clean to come from without touching the evaluation fold.
 _ALLOWED: dict[Phase, frozenset[Split]] = {
     Phase.SEALED: frozenset(),
     Phase.TRAINING: frozenset({Split.TRAIN, Split.HPO_TRAIN, Split.HPO_VAL}),
     Phase.HPO: frozenset({Split.HPO_TRAIN, Split.HPO_VAL}),
-    Phase.CALIBRATION: frozenset({Split.TRAIN, Split.HPO_TRAIN, Split.HPO_VAL}),
+    Phase.CALIBRATION: frozenset({Split.TRAIN, Split.HPO_TRAIN, Split.HPO_VAL,
+                                  Split.HPO_BG}),
     Phase.FINAL_REPORT: frozenset({Split.EVAL, Split.TRAIN}),
 }
 
@@ -217,7 +225,8 @@ class FoldGuard:
 
     folds: list[list[Segment]]
     eval_fold: int
-    hpo_val_frac: float = 0.25
+    hpo_val_frac: float = 0.20
+    hpo_bg_frac: float = 0.30
     audit_path: str | os.PathLike | None = None
     allow_repeat_final: bool = False
 
@@ -232,6 +241,13 @@ class FoldGuard:
             raise ValueError(f"eval_fold {self.eval_fold} out of range for {len(self.folds)} folds")
         if not 0.0 < self.hpo_val_frac < 1.0:
             raise ValueError(f"hpo_val_frac must be in (0,1), got {self.hpo_val_frac}")
+        if not 0.0 <= self.hpo_bg_frac < 1.0:
+            raise ValueError(f"hpo_bg_frac must be in [0,1), got {self.hpo_bg_frac}")
+        if self.hpo_val_frac + self.hpo_bg_frac >= 1.0:
+            raise ValueError(
+                f"hpo_val_frac + hpo_bg_frac = "
+                f"{self.hpo_val_frac + self.hpo_bg_frac} leaves nothing to train on"
+            )
         if self.audit_path is not None:
             Path(self.audit_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -261,19 +277,36 @@ class FoldGuard:
     def _eval_segments(self) -> list[Segment]:
         return sorted(self.folds[self.eval_fold], key=lambda s: (s.start, s.end, s.ifo))
 
-    def _hpo_split(self) -> tuple[list[Segment], list[Segment]]:
-        """Time-grouped HPO train/val split of the training fold (val is the GPS tail)."""
+    def _hpo_split(self) -> tuple[list[Segment], list[Segment], list[Segment]]:
+        """Time-grouped fit / select / background split of the training fold.
+
+        Cut in GPS order into three contiguous blocks — fit, then select, then
+        background — so each is a stretch of time rather than a scatter of segments.
+        Interleaving them would put adjacent hours of the same detector state on both
+        sides of a boundary, which is the leak `_overlap_groups` exists to prevent, one
+        level up.
+
+        Reducing the fit share to make room for the background costs almost nothing
+        here: the training fold holds ~1.4 million distinct 4 s windows and a tile bank
+        draws twenty thousand of them, so the fit split is limited by how many tiles we
+        choose to build, not by livetime. The background is limited by livetime and
+        nothing else, which is why it gets the larger share of what is left.
+        """
         tr = self._train_segments
         total = sum(s.duration for s in tr)
-        cut = total * (1.0 - self.hpo_val_frac)
-        acc, boundary = 0.0, len(tr)
-        for i, s in enumerate(tr):
-            if acc >= cut:
-                boundary = i
-                break
-            acc += s.duration
-        boundary = min(max(boundary, 1), len(tr) - 1)
-        return tr[:boundary], tr[boundary:]
+
+        def boundary_at(fraction: float) -> int:
+            cut, acc = total * fraction, 0.0
+            for i, s in enumerate(tr):
+                if acc >= cut:
+                    return i
+                acc += s.duration
+            return len(tr)
+
+        fit_frac = 1.0 - self.hpo_val_frac - self.hpo_bg_frac
+        b1 = min(max(boundary_at(fit_frac), 1), len(tr) - 2)
+        b2 = min(max(boundary_at(fit_frac + self.hpo_val_frac), b1 + 1), len(tr) - 1)
+        return tr[:b1], tr[b1:b2], tr[b2:]
 
     # ---- phase context managers -------------------------------------------
 
@@ -334,8 +367,9 @@ class FoldGuard:
         elif split is Split.EVAL:
             segs = self._eval_segments
         else:
-            hpo_tr, hpo_va = self._hpo_split()
-            segs = hpo_tr if split is Split.HPO_TRAIN else hpo_va
+            hpo_tr, hpo_va, hpo_bg = self._hpo_split()
+            segs = {Split.HPO_TRAIN: hpo_tr, Split.HPO_VAL: hpo_va,
+                    Split.HPO_BG: hpo_bg}[split]
         self._audit(split, segs)
         return segs
 
@@ -364,7 +398,7 @@ class FoldGuard:
 
     def summary(self) -> dict:
         """Fold accounting for `summary.json` — item 4 of the per-experiment record."""
-        hpo_tr, hpo_va = self._hpo_split()
+        hpo_tr, hpo_va, hpo_bg = self._hpo_split()
         return {
             "n_folds": len(self.folds),
             "eval_fold": self.eval_fold,
@@ -376,6 +410,8 @@ class FoldGuard:
             "eval_livetime_s": sum(s.duration for s in self._eval_segments),
             "hpo_train_livetime_s": sum(s.duration for s in hpo_tr),
             "hpo_val_livetime_s": sum(s.duration for s in hpo_va),
+            # The number that decides how deep a false-alarm rate this run may quote.
+            "hpo_bg_livetime_s": sum(s.duration for s in hpo_bg),
             "eval_fold_reads": self._final_reports,
             "n_audited_accesses": len(self._records),
             "audit_path": str(self.audit_path) if self.audit_path else None,

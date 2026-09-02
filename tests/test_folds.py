@@ -190,3 +190,64 @@ def test_the_real_upstream_segment_list_splits_cleanly():
     assert_disjoint_folds(folds)
     live = [sum(s.duration for s in f_) for f_ in folds]
     assert abs(live[0] - live[1]) / sum(live) < 0.10
+
+
+# --- the background split ------------------------------------------------------
+
+
+def _fold_guard_three_way(**kw):
+    from madgrav_ml.eval.folds import FoldGuard, Segment
+
+    segs = [Segment(ifo, 1_000_000 + 4000 * i, 1_000_000 + 4000 * i + 3600)
+            for i in range(40) for ifo in ("H1", "L1")]
+    return FoldGuard.from_segments(segs, eval_fold=1, n_folds=2, **kw)
+
+
+def test_background_split_is_disjoint_from_fit_and_select():
+    """A false-alarm rate quoted against data the model was fitted to, or SELECTED
+    against, is optimistic. HPO_BG exists so the threshold has somewhere clean to come
+    from that is not the quarantined evaluation fold."""
+    from madgrav_ml.eval.folds import Split
+
+    guard = _fold_guard_three_way()
+    with guard.calibration("test"):
+        fit = guard.segments(Split.HPO_TRAIN)
+        sel = guard.segments(Split.HPO_VAL)
+        bg = guard.segments(Split.HPO_BG)
+    for a, b in ((fit, sel), (fit, bg), (sel, bg)):
+        assert not ({(s.ifo, s.start) for s in a} & {(s.ifo, s.start) for s in b})
+    assert bg and sel and fit
+    # contiguous in GPS: fit, then select, then background
+    assert max(s.end for s in fit) <= min(s.start for s in sel)
+    assert max(s.end for s in sel) <= min(s.start for s in bg)
+
+
+def test_background_split_is_unreadable_while_training_or_tuning():
+    """The guard, not a convention, is what stops a background from being trained on."""
+    import pytest as _pytest
+
+    from madgrav_ml.eval.folds import FoldLeakError, Split
+
+    guard = _fold_guard_three_way()
+    for phase in ("training", "hpo"):
+        with getattr(guard, phase)("test"):
+            with _pytest.raises(FoldLeakError, match="hpo_bg"):
+                guard.segments(Split.HPO_BG)
+
+
+def test_background_split_covers_the_training_fold_exactly():
+    from madgrav_ml.eval.folds import Split
+
+    guard = _fold_guard_three_way()
+    with guard.calibration("test"):
+        parts = sum((guard.segments(s) for s in
+                     (Split.HPO_TRAIN, Split.HPO_VAL, Split.HPO_BG)), [])
+        whole = guard.segments(Split.TRAIN)
+    assert sorted((s.ifo, s.start) for s in parts) == sorted((s.ifo, s.start) for s in whole)
+
+
+def test_split_fractions_must_leave_something_to_train_on():
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="nothing to train on"):
+        _fold_guard_three_way(hpo_val_frac=0.5, hpo_bg_frac=0.5)

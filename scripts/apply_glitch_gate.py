@@ -104,7 +104,9 @@ def main() -> int:
 
     shift = max(1, int(round(args.lag_step / stride)))
     min_n = min(len(s["sh"]) for s in segs)
-    n_lags = min(args.n_lags, 2 * ((min_n - 1) // shift))
+    # See far_curve.py: the +/- ladder wraps onto itself, so the number of DISTINCT
+    # pairings is n/s - 1, not twice that.
+    n_lags = min(args.n_lags, (min_n // shift) - 1)
     plan = make_slide_plan(coincident_s, n_lags, lag_step_s=args.lag_step)
     half = int(round(0.5 * args.cluster_seconds / stride))
     print(f"{len(segs)} segments, {n_lags} lags = "

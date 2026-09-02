@@ -45,6 +45,9 @@ def main() -> int:
                     default=REPO / "data_cache/injections/foreground.npz")
     ap.add_argument("--out", type=Path, default=REPO / "runs/_checks/efficiency_at_far")
     ap.add_argument("--trials", type=int, default=4)
+    ap.add_argument("--gated-background", type=Path, default=None,
+                    help="output of apply_glitch_gate.py; applies the CNN glitch gate "
+                         "to both background and injections")
     args = ap.parse_args()
 
     with open(f"{args.far_curve}.json") as fh:
@@ -54,6 +57,19 @@ def main() -> int:
                 for c in ("massive", "general")}
     T = float(bg_blob["background_livetime_s"])
     norm = cal["sigma_norm"]
+
+    # The CNN glitch gate, if it has been run. Only the loudest triggers per channel were
+    # gated, so a threshold below that floor would be counting ungated triggers as
+    # survivors and reporting a rate that is too low. Refuse rather than extrapolate.
+    floors = {c: -np.inf for c in channels}
+    if args.gated_background is not None:
+        g = np.load(args.gated_background)
+        for c in channels:
+            keep = g[f"{c}_kept"]
+            channels[c] = g[f"{c}_net_sigma"][keep].astype(np.float64)
+            floors[c] = float(g[f"{c}_floor"])
+            print(f"gate: {c} keeps {keep.mean():.4f} "
+                  f"({int(keep.sum())}/{len(keep)}) above net sigma {floors[c]:.2f}")
 
     z = np.load(args.foreground)
     # The SAME normalisation the background was reduced with. Refitting it on the
@@ -72,14 +88,23 @@ def main() -> int:
     from madgrav_ml.eval import coherence as COH
 
     massive = COH.is_massive(z["coherence"], z["centroid_H1"], z["centroid_L1"])
+    passes_gate = np.ones(len(massive), bool)
+    if args.gated_background is not None:
+        if "cnn_hm" not in z.files:
+            raise SystemExit("foreground predates the gate; re-run scan_injections.py")
+        from madgrav_ml.eval import specialists as SP
+
+        passes_gate = ~SP.is_glitch(z["cnn_hm"], z["cnn_lm"])
+        print(f"gate: keeps {passes_gate.mean():.4f} of injections")
     print(f"vetoes: {massive.mean():.3f} of injections reach the massive channel "
           f"(coherence >= {COH.TCOH:.4f} and both centroids < {COH.F_CUT_HZ:.1f} Hz)")
     print(f"        median injection coherence {np.median(z['coherence']):.4f}, "
           f"median centroid H1 {np.median(z['centroid_H1']):.1f} Hz")
 
     trials = TrialsFactor(2, 2) if args.trials == 4 else args.trials
+    tv = trials.value if hasattr(trials, "value") else trials
     T_yr = T / (365.25 * 86400.0)
-    floor = (trials.value if hasattr(trials, "value") else trials) / T_yr
+    floor = tv / T_yr
     print(f"background {T_yr:.2f} yr; floor {floor:.3g}/yr; stored triggers: "
           + ", ".join(f"{c} {v.size}" for c, v in channels.items()))
     print(f"foreground {net.size} coincident injections, network SNR "
@@ -93,7 +118,30 @@ def main() -> int:
         thr = {c: threshold_at_far(v, T, far_target=t, trials=trials) if v.size else np.inf
                for c, v in channels.items()}
         # A trigger clears the search if it beats the threshold OF ITS OWN CHANNEL.
-        found = np.where(massive, net > thr["massive"], net > thr["general"])
+        # A FAR is only resolvable from BELOW if the channel holds enough surviving
+        # background to supply the allowed count. When it does not, threshold_at_far
+        # returns the smallest surviving trigger, which is a floor and not a threshold:
+        # the true threshold lies under it, unmeasured. The gate makes this bite -- it
+        # can leave a channel with 22 events in 23 years, whose entire background
+        # corresponds to a rate of a few per year.
+        unresolved = []
+        for c, v in channels.items():
+            if v.size == 0:
+                continue
+            allowed = int(np.floor(t * T_yr / tv))
+            if allowed >= v.size:
+                unresolved.append(f"{c} (only {v.size} survivors = "
+                                  f"{tv * v.size / T_yr:.2f}/yr in total)")
+        if unresolved:
+            print(f"{t:>11.0f}   not resolvable from below: {', '.join(unresolved)}")
+            continue
+        below = [c for c in thr if np.isfinite(thr[c]) and thr[c] < floors[c]]
+        if below:
+            print(f"{t:>11.0f}   threshold in {'/'.join(below)} falls below the gated "
+                  f"floor; not quoted (gate more triggers with --top)")
+            continue
+        found = (np.where(massive, net > thr["massive"], net > thr["general"])
+                 & passes_gate)
         k = int(found.sum())
         lo, hi = wilson(k, net.size)
         results[t] = {"threshold": thr, "efficiency": k / net.size,
@@ -102,6 +150,23 @@ def main() -> int:
               f"{k/net.size:>12.3f}   [{lo:.3f}, {hi:.3f}]")
 
     edges = [6, 8, 10, 12, 15, 20, 25, 32, 40]
+    # Efficiency against the false-alarm rate the threshold ACTUALLY achieves, rather
+    # than against a target chosen in advance. With a strong veto the resolvable rates
+    # are set by how many background events survive, not by round numbers.
+    print(f"\nefficiency vs achieved FAR (massive channel threshold scanned)")
+    print(f"{'net sigma':>10}{'FAR [1/yr]':>13}{'efficiency':>12}")
+    curve_rows = []
+    mv = channels["massive"]
+    if mv.size:
+        for q in sorted(set(np.clip(np.round(
+                np.geomspace(1, max(mv.size, 2), 8)).astype(int), 1, mv.size))):
+            thr_m = float(np.sort(mv)[mv.size - q])
+            achieved = tv * q / T_yr
+            e = float(((net > thr_m) & massive & passes_gate).mean())
+            curve_rows.append({"net_sigma": thr_m, "far_per_yr": achieved,
+                               "efficiency": e, "n_louder": int(q)})
+            print(f"{thr_m:>10.2f}{achieved:>13.3g}{e:>12.3f}")
+
     print(f"\nefficiency vs network SNR")
     header = f"{'SNR bin':<10}{'n':>7}" + "".join(f"{'FAR '+format(t,'.0f'):>12}" for t in targets)
     print(header)
@@ -113,8 +178,8 @@ def main() -> int:
         line = f"{f'{lo_e}-{hi_e}':<10}{int(m.sum()):>7}"
         for t in targets:
             thr = results[t]["threshold"]
-            k = int(np.where(massive[m], net[m] > thr["massive"],
-                             net[m] > thr["general"]).sum())
+            k = int((np.where(massive[m], net[m] > thr["massive"],
+                              net[m] > thr["general"]) & passes_gate[m]).sum())
             e = k / int(m.sum())
             curves[t].append((0.5 * (lo_e + hi_e), e, int(m.sum()), k))
             line += f"{e:>12.3f}"
@@ -150,8 +215,8 @@ def main() -> int:
     for lo_e, hi_e in ((20, 60), (60, 100), (100, 240)):
         m = (mtot >= lo_e) & (mtot < hi_e)
         if m.any():
-            e = float(np.where(massive[m], net[m] > thr["massive"],
-                               net[m] > thr["general"]).mean())
+            e = float((np.where(massive[m], net[m] > thr["massive"],
+                                net[m] > thr["general"]) & passes_gate[m]).mean())
             print(f"  Mtot {lo_e:>3}-{hi_e:<3}  n={int(m.sum()):>5}  eff={e:.3f}  "
                   f"(massive channel {massive[m].mean():.2f})")
 
@@ -193,6 +258,8 @@ def main() -> int:
     with open(f"{args.out}.json", "w") as fh:
         json.dump({"background_livetime_yr": T_yr, "trials_factor": args.trials,
                    "floor_per_yr": floor, "n_injections": int(net.size),
+                   "gated": args.gated_background is not None,
+                   "efficiency_vs_achieved_far": curve_rows,
                    "results": {str(k): v for k, v in results.items()}}, fh, indent=2)
     print(f"\nwrote {args.out}.json / .png / .pdf")
     return 0

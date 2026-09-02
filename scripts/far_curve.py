@@ -110,11 +110,17 @@ def main() -> int:
     # quoting "63 yr of background" that is eight copies of eight.
     shift = max(1, int(round(args.lag_step / stride)))
     min_n = min(len(s["sh"]) for s in segs)
-    max_lags = 2 * ((min_n - 1) // shift)
+    # Distinct pairings, not distinct lag VALUES. The ladder is +s, -s, +2s, -2s, ... and
+    # j = (i - k) mod n, so the positive and negative arms wrap onto each other: with
+    # n = 14396 and s = 4, lag +14392 is lag -4. The set {+-js mod n} has n/s - 1
+    # elements, not 2(n/s - 1). Getting this wrong does not change any FAR or threshold
+    # -- duplication scales the trigger count and the livetime together -- but it doubles
+    # the livetime and the survivor count that get REPORTED, which makes the statistics
+    # look twice as good as they are.
+    max_lags = (min_n // shift) - 1
     if args.n_lags > max_lags:
-        print(f"capping {args.n_lags} lags at {max_lags}: beyond that a slide repeats a "
-              f"pairing it has already used (segments are {min_n} points, lag step "
-              f"{shift})")
+        print(f"capping {args.n_lags} lags at {max_lags}: the +/- ladder wraps onto "
+              f"itself past that (segments are {min_n} points, lag step {shift})")
         args.n_lags = max_lags
 
     plan = make_slide_plan(coincident_s, args.n_lags, lag_step_s=args.lag_step)

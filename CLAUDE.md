@@ -150,27 +150,48 @@ rather than dropping it and calling the saving an improvement.
 Conclusions and standing facts, not a job log. Numbers live in `docs/results.tex` and
 in each run's `summary.json`.
 
-**Status: Phase 1 infrastructure exists. The reproduction gate is half passed.**
+**Status: stage 1 and stage 2 both reproduce the upstream PROCEDURE. The shipped
+weights themselves cannot be reproduced, and that is a property of the release.**
 
-The section-3.4 gate has two halves. **The first is passed:** the bundled GW190521
-segment run through the distributed weights on our build gives
-`net sigma 7.70 / HM 0.994 / LM 0.954 / RECOVERED` against a reference of
-`~7.7 / ~0.99 / ~0.95 / RECOVERED` — agreement at the precision the reference is quoted
-to. That was not a formality: upstream pins torch 1.12.1 / CUDA 11.2 and calls the
-weights calibration-locked to it, and we run torch 2.6.0+cu124 because CUDA 11.2 has no
-wheel for this partition's GPUs. Re-run it with `jobs/job_demo_gate.sh` after any
-environment change.
+The section-3.4 gate has two halves.
 
-**Two things it does not establish, and they bound every number downstream.** Agreement
-on one loud event constrains the forward pass where the signal is strong; a FAR is a
-property of the noise *tail*, and the demo quotes none, because one short segment has no
-lag livetime. And it validates *inference* only — the gate's second half, that a
-reimplemented stage-1 + stage-2 training run matches the distributed weights' score
-distributions and downstream efficiency, needs strain beyond the bundled segment and is
-**not done**. Until it is, "our reimplementation reproduces the baseline" is not a claim
-we can make.
+**The inference half is passed.** The bundled GW190521 segment run through the
+distributed weights on our build gives `net sigma 7.70 / HM 0.994 / LM 0.954 /
+RECOVERED` against a reference of `~7.7 / ~0.99 / ~0.95 / RECOVERED`. That was not a
+formality: upstream pins torch 1.12.1 / CUDA 11.2 and calls the weights
+calibration-locked to it, and we run torch 2.6.0+cu124 because CUDA 11.2 has no wheel
+for this partition's GPUs. Re-run with `jobs/job_demo_gate.sh` after any environment
+change. Our whitening now also agrees with the deployed `_whiten` to 4e-8 relative RMS,
+and all four checkpoints load into the reimplemented topologies with `strict=True`.
 
-Nothing has been trained. No strain has been fetched.
+**The retraining half cannot be closed, and the reason is in the upstream README:** the
+vendored weights' "training/calibration code and data are not part of this release", and
+the projected signal banks are not shipped either. So the *procedure* is reproducible —
+`train_margin_model` is vendored in full, and our margin now matches
+`compute_margin_loss` to 1e-6 over several (m, lambda) settings — while the *artifact* is
+not. **Therefore the baseline for every comparison is our own retrained stage 2 under the
+fixed protocol, not the shipped weights.** The shipped weights are a fixed external
+reference for the inference path, and a measurement target in their own right; they are
+not a training target we can hit.
+
+**What has been run** (numbers in `docs/results.tex`, not here):
+- Training-fold strain cached: 56 of 58 segment-detector pairs, 14 GB.
+- Four matched tile banks (noise and injected, train and val) plus a 20k held-out noise
+  bank. Injections are IMRPhenomPv2 at network SNR U(8, 25) into real O3a noise,
+  validated end to end by matched-filter recovery.
+- Stage 1 (10 epochs, upstream recipe) and stage 2 (10 epochs, best at epoch 8 against
+  upstream's 9).
+- At noise false-positive fractions of 1e-1 and 1e-2 the distributed weights beat our
+  retrained stage 2 by 9 and 17 points. The comparison is confounded in both directions
+  — each model is out of the other's training distribution — so it measures neither
+  reimplementation quality nor model quality.
+- The distributed model's error is **-0.95** rank-correlated with the tile's mean pixel
+  value on held-out O3a noise. Ten epochs of the published margin recipe moves ours from
+  +0.86 to +0.35, nowhere near it.
+
+**Still not done:** time-slide background, any FAR, any efficiency-at-fixed-FAR or VT,
+the glitch arm and specialists, coherence, the LR cascade. The evaluation fold has never
+been touched and stays that way (C4).
 
 **Facts established by reading and running the upstream release** (these change what to
 build, so they belong here rather than in results.tex):

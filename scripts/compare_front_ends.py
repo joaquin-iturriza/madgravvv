@@ -62,6 +62,8 @@ def main() -> int:
     ap.add_argument("--signal-shards", default="data_cache/tiles/val_signal/*.npz",
                     help="matched injected bank; pass '' to compare on noise only")
     ap.add_argument("--out", type=Path, default=REPO / "runs/_checks/front_end_comparison")
+    ap.add_argument("--label", default="retrained",
+                    help="what the checkpoint is, e.g. 'retrained (stage 2)'")
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -89,7 +91,7 @@ def main() -> int:
         return (np.median(z), np.percentile(z, 99), np.percentile(z, 99.9),
                 z.max(), skew(z), kurtosis(z))
 
-    print(f"\n{'standardised score':<22}{'retrained':>12}{'distributed':>14}")
+    print(f"\n{'standardised score':<22}{args.label[:11]:>12}{'distributed':>14}")
     names = ("median", "99th pct", "99.9th pct", "maximum", "skewness", "excess kurtosis")
     for name, a, b in zip(names, stats(z_ours), stats(z_theirs)):
         print(f"{name:<22}{a:>+12.2f}{b:>+14.2f}")
@@ -101,7 +103,7 @@ def main() -> int:
         "pixel standard deviation": flat.std(axis=(1, 2)),
         "fraction of pixels above 0.5": (flat > 0.5).mean(axis=(1, 2)),
     }
-    print(f"\n{'tile property (Spearman rho with error)':<40}{'retrained':>12}{'distributed':>14}")
+    print(f"\n{'tile property (Spearman rho with error)':<40}{args.label[:11]:>12}{'distributed':>14}")
     for name, v in props.items():
         print(f"{name:<40}{spearman(s_ours, v):>+12.2f}{spearman(s_theirs, v):>+14.2f}")
 
@@ -150,12 +152,12 @@ def main() -> int:
 
     fig, axes = plt.subplots(1, 2, figsize=(9.5, 3.8))
     bins = np.linspace(-3, max(z_ours.max(), z_theirs.max()), 80)
-    axes[0].hist(z_ours, bins=bins, histtype="step", label="retrained (stage 1)")
+    axes[0].hist(z_ours, bins=bins, histtype="step", label=args.label)
     axes[0].hist(z_theirs, bins=bins, histtype="step", label="distributed (stage 2)")
     axes[0].set_yscale("log"); axes[0].legend(fontsize=8)
     axes[0].set_xlabel("standardised reconstruction error"); axes[0].set_ylabel("tiles")
     axes[1].scatter(z_ours, z_theirs, s=3, alpha=0.3)
-    axes[1].set_xlabel("retrained (standardised)"); axes[1].set_ylabel("distributed (standardised)")
+    axes[1].set_xlabel(f"{args.label} (standardised)"); axes[1].set_ylabel("distributed (standardised)")
     axes[1].set_title(f"Spearman {spearman(s_ours, s_theirs):+.3f}", fontsize=9)
     fig.tight_layout()
     args.out.parent.mkdir(parents=True, exist_ok=True)

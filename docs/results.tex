@@ -238,6 +238,137 @@ same quantity. That is direct support for both a tile-independent amplitude scal
 (R2) and a learned readout in place of reconstruction error (Phase 4), and it is
 measured on the shipped model rather than argued from its architecture.
 
+\section{The stage-2 margin fine-tune}
+\label{sec:stage2}
+
+\subsection*{What the released package makes reproducible}
+
+The upstream README states that the vendored weights' ``training/calibration code and
+data are not part of this release'', and the projected signal banks the injection stage
+needs are likewise not shipped. The stage-2 \emph{procedure} is therefore reproducible
+--- \texttt{improved\_pipeline.train\_margin\_model} is vendored in full --- while the
+stage-2 \emph{artifact} is not, because neither the noise it was trained on nor the
+waveform bank it was trained against is public. That distinction governs how everything
+below should be read, and it means the reproduction requirement of
+Section~\ref{sec:repro} cannot be closed by retraining. What can be, and has been,
+closed is the inference path: the whitening agrees with the deployed function to
+$4\times10^{-8}$, the weights load into the reimplemented topology with
+\texttt{strict=True}, and the bundled demo recovers its event at the quoted net
+$\sigma$.
+
+\subsection*{Three properties of the margin that the paper does not fix}
+
+Read off the source rather than the description:
+\begin{itemize}
+\item The margin is \textbf{multiplicative}: $\mathrm{relu}(m\,\overline{L_n} -
+\overline{L_s})$, not $\mathrm{relu}(m + \overline{L_n} - \overline{L_s})$. Noise MSE
+here is $\sim2\times10^{-3}$, so an additive reading with $m=3$ is saturated for every
+batch that will ever exist --- the hinge never switches off and the gradient degenerates
+to ``raise signal error without bound'', a term with no fixed point rather than a margin.
+\item The noise term inside the hinge is \textbf{detached}. The margin may raise signal
+error; it may not satisfy itself by lowering noise error.
+\item It is a $\mathrm{relu}$ of the batch \textbf{means}, not the mean of per-tile
+$\mathrm{relu}$s, so a batch already satisfying the margin on average contributes no
+gradient even when individual tiles fall short.
+\end{itemize}
+Also not inferable from the paper: the fine-tuning learning rate is $10^{-3}$, the same
+as stage 1 rather than reduced; no gradient clipping is applied;
+\texttt{ReduceLROnPlateau} is constructed with \texttt{threshold=1e-3} against Torch's
+default of $10^{-4}$; and the checkpoint is selected on a \emph{detection} criterion
+(validation injections above $\mu+3\sigma$ of the validation noise, tie-broken by mean
+separation) while the learning-rate scheduler steps on the validation \emph{loss}.
+
+\subsection*{The run}
+
+Our stage-1 checkpoint was fine-tuned on a matched pair of banks: 19\,991 noise tiles
+and 19\,991 injected tiles built from the \emph{same} windows, with IMRPhenomPv2 sources
+drawn at network SNR uniform in $(8, 25)$ --- upstream's
+\texttt{PROJECTED\_TARGET\_NETWORK\_SNR\_RANGE}, rescaled so that
+$\sqrt{\rho_{H1}^2+\rho_{L1}^2}$ hits the target, matching
+\texttt{maybe\_rescale\_projected\_signal\_pair}. Ten epochs, batch 64 per class, seed
+42. The best checkpoint fell at epoch 8 of 10, against upstream's reported 9 of 10.
+
+The fine-tune degrades noise reconstruction substantially and non-monotonically: the
+validation noise mean rises from $1.9\times10^{-3}$ to $3.1\times10^{-2}$ after one
+epoch, with the detection criterion collapsing to 4 of 1984, before recovering to
+$7.8\times10^{-3}$ and 1416 of 1984 by epoch 8. That transient is the multiplicative
+margin overwhelming the reconstruction term and then being pulled back by it, and it is
+invisible in any summary that reports only the final loss.
+
+\subsection*{Comparison against the distributed weights}
+
+Both models scored on 19\,994 held-out noise tiles and 2002 injections. Thresholds are
+set on each model's \emph{own} noise distribution, so the two are quoted at equal
+fractions of noise surviving --- the only scale-free comparison available. This is not a
+false-alarm rate: that needs the time-slide background and the trials factor.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Efficiency at a noise false-positive fraction of & Retrained (stage 2) & Distributed \\
+\midrule
+$10^{-1}$ & $0.872$ & $\mathbf{0.959}$ \\
+$10^{-2}$ & $0.711$ & $\mathbf{0.879}$ \\
+$10^{-3}$ & $0.034$ & $0.000$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At both operating points where the threshold is well determined the distributed weights
+are clearly better, by 9 and 17 percentage points. We do not read this as a measurement
+of reimplementation quality in either direction: our model saw 20\,000 tiles from one
+O3a fold and our own injection population, and the distributed model saw neither, so
+each is out of the other's training distribution and the comparison is confounded in
+both directions at once.
+
+The $10^{-3}$ row is reported only to be disowned. On the 2002-tile validation bank used
+during training, the same quantities read $0.551$ and $0.224$ --- a factor of sixteen
+higher for one model and unboundedly higher for the other --- because at 2002 samples the
+$99.9$th percentile \emph{is} the second-largest observed value. The background sample
+size sets how deep a tail may be quoted at all, and nothing about the first pair of
+numbers announced that it was noise. This is the concrete form of the project's rule that
+the currency is efficiency at fixed FAR: quoting it requires the background to support
+the quantile.
+
+\subsection*{What the margin did and did not move}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Spearman $\rho$ of error with & Retrained (stage 1) & Retrained (stage 2) & Distributed \\
+\midrule
+mean pixel value             & $+0.86$ & $+0.35$ & $-0.95$ \\
+pixel standard deviation     & $+0.91$ & $+0.46$ & $-0.88$ \\
+fraction of pixels above 0.5 & $+0.90$ & $+0.40$ & $-0.94$ \\
+\midrule
+rank correlation with the distributed model & $-0.804$ & $-0.279$ & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The margin moves our model firmly in the direction of the distributed one on every axis
+and gets nowhere near it. Ten epochs of weak supervision on our injection population
+takes the association with tile brightness from $+0.86$ to $+0.35$; the distributed model
+sits at $-0.95$. Two readings are available and the data here cannot separate them: either
+the shipped weights received far more weak supervision than ten epochs of this population,
+or their $\rho=-0.95$ is a property of a training set we do not have. Either way, that
+correlation is not something the published recipe produces on public data in the published
+number of epochs.
+
+One structure in the joint distribution is worth recording because it explains the
+$10^{-3}$ row. The two models' scores anticorrelate through the bulk but \emph{agree}
+sharply on the extreme tail: the scatter carries a distinct high-score arm on which both
+models rank the same tiles as hardest. Those tiles are what set each model's $99.9$th
+percentile, so both thresholds are fixed by the same population of genuinely anomalous
+noise --- presumably glitches --- rather than by anything either model learned about
+signals. That is also the honest reason neither model passes injections at $10^{-3}$
+here, and it is an argument for the glitch arm rather than against either front end.
+
+Finally, a caveat that applies to every number in this section: the validation fold was
+used to select our checkpoint, so it is held out for the distributed weights and not for
+ours. Under constraint C4 the clean comparison surface is the quarantined evaluation
+fold, and it stays quarantined until there is a result to report on it.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

@@ -588,77 +588,47 @@ is what actually buys information, and this analysis uses 30\% of one fold of a
 56-segment set. Upstream's shipped calibration quotes 47.4~yr from a correspondingly
 larger stretch.
 
-\section{Head to head against the distributed weights}
+\section{Running the measurement on the distributed weights}
 \label{sec:headtohead}
 
-The comparison in Section~\ref{sec:stage1} was between score distributions on noise
-tiles, which we now know is not the same question as which model detects more. This is
-the same comparison in the currency that decides it. The distributed stage-2 weights were
-substituted for ours and everything else held identical: the same background segments,
-the same 7196-lag slide plan, the same 8000 injections with the same drawn parameters,
-the same vetoes and the same two-channel structure. Each model's threshold is set from
-its \emph{own} time-slide background, which is the only way to compare two statistics
-living on different scales.
+The distributed stage-2 weights were put through the identical chain --- same background
+segments, same 7196-lag slide plan, same 8000 injections with the same drawn parameters,
+same vetoes, same two-channel structure, each model thresholded on its own background.
+The efficiency at a false-alarm rate of 100/yr came out at $0.240$ against $0.188$ for
+our retrained model.
 
-\begin{center}
-\begin{tabular}{lrr}
-\toprule
- & Retrained (this work) & Distributed \\
-\midrule
-Efficiency at FAR 100/yr & $0.188$ & $\mathbf{0.240}$ \\
-Threshold, massive channel & $8.21$ & $6.01$ \\
-Threshold, general channel & $21.76$ & $13.13$ \\
-Largest background net $\sigma$ & $32.4$ & $16.7$ \\
-\bottomrule
-\end{tabular}
-\end{center}
+\textbf{That difference is not a result and should not be read as one.} The two models
+share an architecture and differ in their training sets: ours saw twenty thousand tiles
+from one fold of O3a, theirs saw a set that is not public and is certainly larger. A gap
+in that direction was the expected outcome before the measurement was made, and nothing
+in it distinguishes a deficiency of our reimplementation from the size of its training
+set. Since the distributed weights cannot be reproduced from public data
+(Section~\ref{sec:stage2}), the comparison cannot be made fair by any amount of further
+work, and it is recorded here so that it is not mistaken for a baseline later. The
+baseline against which changes are judged is our own model under a fixed protocol,
+compared with itself.
 
-The distributed weights are better, by 5.2 percentage points, or 28\% in relative terms.
-The interesting part is where the difference is:
+Two things the run is good for.
 
-\begin{center}
-\begin{tabular}{lrrr}
-\toprule
-Network SNR & $n$ & Retrained & Distributed \\
-\midrule
-8--10   & 486  & $0.000$ & $0.033$ \\
-10--12  & 469  & $0.004$ & $0.087$ \\
-12--15  & 720  & $0.014$ & $0.153$ \\
-15--20  & 1139 & $0.083$ & $0.212$ \\
-20--25  & 1174 & $0.217$ & $0.288$ \\
-25--32  & 1656 & $0.306$ & $0.319$ \\
-32--40  & 1917 & $0.333$ & $0.335$ \\
-\bottomrule
-\end{tabular}
-\end{center}
+\emph{The vetoes set a ceiling that no front end can exceed.} Above network SNR 25 the
+two models are indistinguishable --- $0.306$ against $0.319$, then $0.333$ against
+$0.335$ --- and that plateau is the fraction of injections the vetoes admit to the
+mass-conditioned channel at those amplitudes. For loud sources the choice of front end
+does not enter the answer at all. This is a property of the pipeline rather than of
+either model, and it bounds what any front-end change can buy: whatever is gained has to
+be gained at the quiet end, because the loud end is already saturated by something else.
 
-The entire gap is at low SNR. Above network SNR 25 the two are indistinguishable, and
-both saturate near $0.33$ --- which is not a property of either model but the fraction of
-injections the vetoes admit to the mass-conditioned channel at those amplitudes. At the
-loud end both front ends are at the veto ceiling and the choice of front end does not
-matter at all.
+\emph{The chain runs on a model it was not developed against.} The scan, the slides, the
+vetoes and the efficiency calculation all produced sensible numbers on an independently
+trained checkpoint. That is a software check, and worth having before any of it is used
+to judge a change.
 
-What separates them at the quiet end is the noise tail, not the signal response. Our
-background reaches net $\sigma = 32.4$ against $16.7$ for the distributed weights, so our
-threshold at a fixed false-alarm rate has to sit almost four units higher in the
-mass-conditioned channel and eight units higher in the general one, and everything
-between those thresholds is signal we lose and they keep. The same asymmetry appears in
-the score distributions of Section~\ref{sec:stage1}: our retrained model had excess
-kurtosis $122$ on held-out noise against $9.3$ for theirs.
-
-That is a specific and encouraging diagnosis. Our front end responds to signal about as
-well as the distributed one --- the high-SNR bins say so directly. What it does worse is
-produce occasional extreme reconstruction errors on noise, and it is those rare tiles,
-not any deficit in sensitivity, that set the threshold everything else must clear.
-Suppressing the tail is a different problem from improving separation, and it is the one
-worth working on.
-
-Two caveats bound this. Our model saw twenty thousand tiles from one fold of O3a and our
-own injection population; the distributed model saw neither, and its training data is not
-public, so this is a comparison of two training runs and not of two architectures. And
-the injections are drawn from our population, which is in-distribution for us and not for
-them --- an asymmetry that, if anything, works against the conclusion above rather than
-for it.
+One tempting reading is explicitly \emph{not} supported: our background reaches net
+$\sigma = 32.4$ where the distributed model's stops at $16.7$, which raises our threshold
+and costs us the quiet injections. That is a correct description of the arithmetic, but
+attributing it to a defect in our objective rather than to a model fitted on twenty
+thousand tiles handling rare noise badly is not something these data can do. The
+observation is kept as a hypothesis to test against our own seeds, not as a diagnosis.
 
 \section{Results}
 

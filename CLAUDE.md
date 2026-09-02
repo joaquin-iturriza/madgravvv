@@ -240,20 +240,26 @@ FAR 13.2/yr, a factor of ~13 away. More lags buy resolution; only more distinct 
 buys information, and this uses 30% of one fold of a 56-segment set against upstream's
 47.4 yr.
 
-**Head to head against the shipped weights, everything else identical** (same segments,
-same 7196-lag plan, same 8000 injections, same vetoes; each model thresholded on its own
-background): **efficiency at FAR 100/yr — ours 0.188, shipped 0.240.**
+**The shipped weights are NOT a baseline and must never be used as one.** Running the
+full chain on them gives efficiency 0.240 at FAR 100/yr against our 0.188 — but the two
+share an architecture and differ only in training data (ours: 20k tiles from one fold;
+theirs: not public, certainly larger). A gap in that direction was the expected outcome
+before the measurement, and since their weights cannot be reproduced from public data the
+comparison cannot be made fair by any amount of work. **The baseline is our own model
+under a fixed protocol, compared with itself.** Their weights are a fixed reference for
+the *inference* path (the demo gate) and a measurement target in their own right (the
+-0.95 tile-mean result), never a score to beat.
 
-The whole gap is at LOW SNR. Above network SNR 25 the two are indistinguishable
-(0.306/0.319, then 0.333/0.335) and both saturate at the veto ceiling, where the front
-end stops mattering. The cause is the noise tail, not signal response: our background
-reaches net sigma **32.4** against **16.7** for theirs, so our threshold sits ~4 units
-higher in the massive channel and ~8 in the general one, and everything in between is
-signal we lose and they keep. Same asymmetry as the tile-level kurtosis (122 vs 9.3).
+What that run WAS worth:
+- **The vetoes set a ceiling no front end can exceed.** Above network SNR 25 the two
+  models are indistinguishable (0.306/0.319, then 0.333/0.335) and that plateau is just
+  the fraction of injections the vetoes admit. For loud sources the front end does not
+  enter the answer. Any front-end gain has to come at the quiet end.
+- A software check: the whole chain ran on a checkpoint it was not developed against.
 
-**So the target is the noise tail, not separation.** Our front end responds to signal as
-well as theirs — the high-SNR bins say so directly. It just produces occasional extreme
-reconstruction errors on noise, and those rare tiles set the threshold for everything.
+NOT supported, though tempting: that our heavier noise tail (max net sigma 32.4 vs 16.7)
+is a defect of the objective. It is equally "a model fitted on 20k tiles handles rare
+noise badly". Keep it as a hypothesis to test across our own seeds, not a diagnosis.
 
 **Still not done:** 3-seed baseline (needed before ANY improvement claim), the glitch
 arm, the specialists, the LR cascade, VT. The evaluation fold has never been touched and

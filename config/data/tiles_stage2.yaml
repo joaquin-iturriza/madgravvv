@@ -1,0 +1,21 @@
+# @package data
+# Stage-2 pair: a noise bank and a matched injected bank built from the SAME windows.
+#
+#   scripts/remote.sh sbatch jobs/job_build_tiles.sh --split hpo_train --n-tiles 20000 \
+#       --out data_cache/tiles/train
+#   scripts/remote.sh sbatch jobs/job_build_tiles.sh --split hpo_train --n-tiles 20000 \
+#       --out data_cache/tiles/train_signal --inject
+#
+# Both runs use the same --seed and draw window starts from the same RNG stream, while
+# injections come from a separate stream — so tile i of one bank is tile i of the other
+# with a signal added. That matters: if the two banks held different noise draws, the
+# margin would be separating two samples of the fold as much as noise from signal.
+defaults:
+  - o3a
+  - _self_
+
+source: cached
+train_shards: data_cache/tiles/train/*.npz
+val_shards: data_cache/tiles/val/*.npz
+signal_train_shards: data_cache/tiles/train_signal/*.npz
+signal_val_shards: data_cache/tiles/val_signal/*.npz

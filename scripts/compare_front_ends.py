@@ -59,6 +59,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", type=Path, required=True)
     ap.add_argument("--val-shards", default="data_cache/tiles/val/*.npz")
+    ap.add_argument("--signal-shards", default="data_cache/tiles/val_signal/*.npz",
+                    help="matched injected bank; pass '' to compare on noise only")
     ap.add_argument("--out", type=Path, default=REPO / "runs/_checks/front_end_comparison")
     args = ap.parse_args()
 
@@ -102,6 +104,47 @@ def main() -> int:
     print(f"\n{'tile property (Spearman rho with error)':<40}{'retrained':>12}{'distributed':>14}")
     for name, v in props.items():
         print(f"{name:<40}{spearman(s_ours, v):>+12.2f}{spearman(s_theirs, v):>+14.2f}")
+
+    # --- detection, at MATCHED noise false-positive fractions --------------------
+    #
+    # The only fair way to compare two models whose scores live on different scales.
+    # Each model's threshold is set by its OWN noise distribution, so both are quoted
+    # at the same fraction of noise tiles surviving. This is not yet a false-alarm
+    # RATE -- that needs the time-slide background and the trials factor -- but it is
+    # the like-for-like comparison the reproduction requirement asks for.
+    curves = {}
+    if args.signal_shards:
+        import glob
+
+        sig = CachedTileDataset(args.signal_shards)
+        sig_tiles = np.stack([sig[i][0].numpy() for i in range(len(sig))])
+        snr = np.concatenate([np.load(f)["network_snr"]
+                              for f in sorted(glob.glob(args.signal_shards))])
+        print(f"\n{len(sig_tiles)} injections, network SNR "
+              f"{snr.min():.1f}-{snr.max():.1f}")
+        g_ours, g_theirs = score(ours, sig_tiles, device), score(theirs, sig_tiles, device)
+
+        print(f"\n{'noise false-positive fraction':<32}{'retrained':>12}{'distributed':>14}")
+        for fp in (0.1, 0.01, 0.001):
+            row = []
+            for s_noise, s_sig in ((s_ours, g_ours), (s_theirs, g_theirs)):
+                t = np.quantile(s_noise, 1.0 - fp)
+                row.append(float((s_sig > t).mean()))
+            curves[fp] = row
+            print(f"{'efficiency at ' + format(fp, '.3f'):<32}{row[0]:>12.3f}{row[1]:>14.3f}")
+
+        edges = [8.0, 10.0, 12.0, 15.0, 20.0, 25.0]
+        print(f"\nefficiency vs network SNR at a 0.1% noise false-positive fraction")
+        print(f"{'SNR bin':<14}{'n':>7}{'retrained':>12}{'distributed':>14}")
+        t_ours = np.quantile(s_ours, 0.999)
+        t_theirs = np.quantile(s_theirs, 0.999)
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            m = (snr >= lo) & (snr < hi)
+            if not m.any():
+                continue
+            print(f"{f'{lo:.0f}-{hi:.0f}':<14}{int(m.sum()):>7}"
+                  f"{float((g_ours[m] > t_ours).mean()):>12.3f}"
+                  f"{float((g_theirs[m] > t_theirs).mean()):>14.3f}")
 
     import matplotlib.pyplot as plt
 

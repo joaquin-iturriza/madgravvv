@@ -132,28 +132,49 @@ def margin_loss(
     err_signal: torch.Tensor,
     margin: float = 3.0,
 ) -> torch.Tensor:
-    """Stage-2 weak supervision: push signal reconstruction error above noise error.
+    """Stage-2 weak supervision, exactly as `improved_pipeline.compute_margin_loss`:
 
-    `relu(margin + mean(err_noise) - err_signal)`, i.e. a hinge that is satisfied once
-    a signal tile reconstructs at least `margin` worse than typical noise. Upstream
-    uses m = 3.0 with weight lambda = 2.0 on top of the stage-1 MSE; both are prime
-    HPO targets (Phase 5) since neither has an obvious a priori value.
+        relu(margin * mean(err_noise).detach() - mean(err_signal))
 
-    Note this is the *only* place signal labels enter the front end. Constraint C3
-    requires stage 1 to stay label-free; keep it that way.
+    Three details, each of which changes training and none of which is guessable from
+    the paper:
+
+    * The margin is **multiplicative**, not additive. `m = 3` asks a signal tile to
+      reconstruct three times worse than typical noise. Reading it as an additive
+      hinge is not a small error: noise MSE here is ~2e-3, so `relu(3 + noise - signal)`
+      is saturated for every batch it will ever see, the `relu` never switches off, and
+      the gradient degenerates to "increase signal error without bound" — a term with
+      no fixed point rather than a margin.
+    * The noise term inside the hinge is **detached**. The margin may raise signal
+      error; it may not lower noise error to satisfy itself. Only the plain MSE term
+      trains the noise branch.
+    * It is `relu` of the batch **means**, not the mean of per-tile `relu`s. One hinge
+      per batch, so a batch that already satisfies the margin on average contributes no
+      gradient at all, even if individual tiles fall short.
+
+    This is the only place signal labels enter the front end. C3 requires stage 1 to
+    stay label-free; keep it that way.
     """
-    return F.relu(margin + err_noise.mean() - err_signal).mean()
+    return F.relu(margin * err_noise.mean().detach() - err_signal.mean())
 
 
 def stage2_loss(
-    recon_noise: torch.Tensor,
-    x_noise: torch.Tensor,
+    err_noise: torch.Tensor,
     err_signal: torch.Tensor,
     margin: float = 3.0,
     lam: float = 2.0,
 ) -> tuple[torch.Tensor, dict]:
-    """Stage-1 MSE on noise plus `lam` times the margin term. Returns (loss, parts)."""
-    err_noise = F.mse_loss(recon_noise, x_noise, reduction="none").flatten(1).mean(1)
-    mse = err_noise.mean()
+    """`mean(err_noise) + lam * margin_loss(...)`, upstream's `total`.
+
+    Takes per-tile errors for both classes rather than a reconstruction, because the
+    two classes are separate forward passes over separate batches — upstream zips a
+    noise loader with a signal loader and both are `batch_size` long, so a single mixed
+    batch would halve the effective batch of each class.
+    """
+    noise = err_noise.mean()
     hinge = margin_loss(err_noise, err_signal, margin)
-    return mse + lam * hinge, {"mse": float(mse.detach()), "margin": float(hinge.detach())}
+    return noise + lam * hinge, {
+        "noise": float(noise.detach()),
+        "signal": float(err_signal.mean().detach()),
+        "margin": float(hinge.detach()),
+    }

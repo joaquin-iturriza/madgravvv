@@ -57,9 +57,11 @@ sys.path.insert(0, str(REPO / "src"))
 from madgrav_ml.data.representation import (  # noqa: E402
     TileSpec, make_tile, notch, notch_lines_for, whiten,
 )
+from madgrav_ml.data.injections import ParameterSampler  # noqa: E402
 from madgrav_ml.data.strain import (  # noqa: E402
     SegmentReader, available_segments, load_reference_psd, load_segments,
 )
+from madgrav_ml.data.waveforms import InjectionEngine, LALWaveformBackend  # noqa: E402
 from madgrav_ml.eval.folds import FoldGuard, Split  # noqa: E402
 
 SEGMENTS = REPO / ".reference/MADGRAV/search_mode/o3a_bg_segments_56.json"
@@ -68,17 +70,24 @@ PSD_DIR = REPO / ".reference/MADGRAV/data/o3a_search_prep"
 _CTX: dict = {}
 
 
-def _init(psds, spec, fs, lines):
-    _CTX.update(psds=psds, spec=spec, fs=fs, lines=lines)
+def _init(psds, spec, fs, lines, engine):
+    _CTX.update(psds=psds, spec=spec, fs=fs, lines=lines, engine=engine)
 
 
 def _one(args):
-    """Whiten, notch, transform. Runs in a worker; returns the tile or None."""
-    raw, ifo = args
+    """Whiten, notch, optionally inject, transform. Returns (tile, meta) or None.
+
+    The injection is added to the *whitened* series, which is exact rather than
+    approximate: whitening and the notch chain are LTI, so whitening noise and signal
+    separately and summing equals whitening their sum. See data/waveforms.py.
+    """
+    raw, ifo, gps, params = args
     try:
         w = whiten(raw, _CTX["fs"], reference_psd=_CTX["psds"][ifo])
         w = notch(w, _CTX["fs"], lines=_CTX["lines"][ifo])
-        return make_tile(w, _CTX["spec"]).astype(np.float32)
+        if params is not None:
+            w = _CTX["engine"].inject(w, params, ifo, gps)
+        return make_tile(w, _CTX["spec"]).astype(np.float32), params
     except Exception:
         # A single bad window must not kill a two-hour build. Dropped tiles are counted
         # and reported; a silent zero tile would be far worse than a missing one.
@@ -97,6 +106,13 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=42)
     # "o1" is what the deployed search uses even on O3a -- see representation.notch_lines_for.
     ap.add_argument("--line-configuration", choices=("o1", "o3a"), default="o1")
+    # Build the SIGNAL half of the stage-2 pair. Windows are drawn from a separate RNG
+    # stream from the injections, so `--inject` and a plain run with the same --seed
+    # draw the IDENTICAL noise windows in the identical order. That is what makes the
+    # two banks a matched pair rather than two samples of the fold, and it matches
+    # upstream, which injects into the noise split it also trains on.
+    ap.add_argument("--inject", action="store_true")
+    ap.add_argument("--snr-convention", choices=("network", "detector"), default="network")
     args = ap.parse_args()
 
     segs = load_segments(SEGMENTS, ifo="H1") + load_segments(SEGMENTS, ifo="L1")
@@ -114,6 +130,32 @@ def main() -> int:
     # One source of truth. This used to be a hand-copied, silently truncated version of
     # the O3a list; the deployed search notches the O1 list instead.
     lines = {i: notch_lines_for(i, args.line_configuration) for i in psds}
+
+    engine = None
+    sampler = None
+    inj_rng = None
+    if args.inject:
+        # Load LAL in the PARENT, before Pool forks. Same lesson as scipy/gwpy above: a
+        # 16-worker first-tile import storm against a venv on shared /sps once sat for
+        # 54 minutes and produced nothing.
+        import lal  # noqa: F401
+        import lalsimulation  # noqa: F401
+
+        engine = InjectionEngine(
+            backend=LALWaveformBackend(),
+            psds=psds,
+            notch_lines=lines,
+            sample_rate=fs,
+            window_seconds=args.window_seconds,
+            snr_convention=args.snr_convention,
+        )
+        # Upstream draws the target uniformly in (8, 25) and rescales so the NETWORK
+        # SNR -- sqrt(rho_H1^2 + rho_L1^2) -- hits it (maybe_rescale_projected_signal_pair).
+        sampler = ParameterSampler(snr_range=(8.0, 25.0))
+        inj_rng = np.random.default_rng(args.seed + 10_000)
+        print(f"injecting: {engine.backend.approximant_name} from "
+              f"{engine.backend.f_lower} Hz, network SNR U(8, 25), "
+              f"'{args.snr_convention}' convention", flush=True)
 
     args.out.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
@@ -133,35 +175,55 @@ def main() -> int:
     made = 0
     t0 = time.time()
 
-    with Pool(args.workers, initializer=_init, initargs=(psds, spec, fs, lines)) as pool:
+    meta: list = []
+
+    def flush(buf, meta, shard, made, t0, final=False):
+        path = args.out / f"tiles_{shard:04d}.npz"
+        extra = {}
+        if args.inject:
+            extra = {k: np.array([m[k] for m in meta], dtype=np.float32)
+                     for k in ("mass1", "mass2", "network_snr", "spin1z", "spin2z",
+                               "inclination", "time_shift")}
+        np.savez_compressed(
+            path, x=np.stack(buf),
+            y=np.full(len(buf), 1.0 if args.inject else 0.0, dtype=np.float32),
+            source=np.array([args.split] * len(buf)), **extra)
+        note = "" if final else f", {(time.time()-t0)/60:.1f} min"
+        print(f"  wrote {path.name}  ({made} tiles{note})", flush=True)
+
+    with Pool(args.workers, initializer=_init,
+              initargs=(psds, spec, fs, lines, engine)) as pool:
         for si, (seg, n_here) in enumerate(zip(have, per_seg)):
             arr = reader.segment(seg)                       # one 236 MB load per segment
             n_samp = int(args.window_seconds * fs)
             starts = rng.integers(0, arr.size - n_samp, size=int(n_here))
-            windows = [(arr[i:i + n_samp].copy(), seg.ifo) for i in starts]
-            for tile in pool.imap_unordered(_one, windows, chunksize=4):
-                if tile is None:
+            windows = []
+            for i in starts:
+                # GPS of the window CENTRE, where the coalescence sits: the antenna
+                # pattern and the geocentre delay are both functions of sidereal time.
+                gps = seg.start + (int(i) / fs) + 0.5 * args.window_seconds
+                params = sampler.draw(inj_rng) if args.inject else None
+                windows.append((arr[i:i + n_samp].copy(), seg.ifo, gps, params))
+            # imap, not imap_unordered: the noise and signal banks must stay index
+            # aligned so a pair is one window with and without its injection.
+            for out in pool.imap(_one, windows, chunksize=4):
+                if out is None:
                     dropped += 1
                     continue
+                tile, params = out
                 buf.append(tile)
+                if args.inject:
+                    meta.append(params.as_dict())
                 made += 1
                 if len(buf) >= args.shard_size:
-                    path = args.out / f"tiles_{shard:04d}.npz"
-                    np.savez_compressed(path, x=np.stack(buf),
-                                        y=np.zeros(len(buf), dtype=np.float32),
-                                        source=np.array([args.split] * len(buf)))
-                    print(f"  wrote {path.name}  ({made} tiles, "
-                          f"{(time.time()-t0)/60:.1f} min)", flush=True)
-                    buf, shard = [], shard + 1
+                    flush(buf, meta, shard, made, t0)
+                    buf, meta, shard = [], [], shard + 1
             el = time.time() - t0
             print(f"[{si+1}/{len(have)}] {seg.ifo} {int(seg.start)}  {made} tiles  "
                   f"[{el/60:.1f} min, {made/el:.2f} tiles/s]", flush=True)
 
     if buf:
-        path = args.out / f"tiles_{shard:04d}.npz"
-        np.savez_compressed(path, x=np.stack(buf), y=np.zeros(len(buf), dtype=np.float32),
-                            source=np.array([args.split] * len(buf)))
-        print(f"  wrote {path.name}  ({made} tiles)", flush=True)
+        flush(buf, meta, shard, made, t0, final=True)
 
     print(f"\ndone: {made} tiles, {dropped} dropped, {(time.time()-t0)/60:.1f} min")
     return 0 if made else 1

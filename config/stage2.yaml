@@ -1,14 +1,29 @@
-# Stage-2 weak-supervision fine-tune. Loads a stage-1 checkpoint and adds the margin.
+# Stage-2 weak-supervision fine-tune. A REPRODUCTION: every value below is read off
+# improved_pipeline.py (Config + train_margin_model), not off the paper.
 defaults:
   - default
   - override /model: cae_stage2
+  - override /data: tiles_stage2
   - _self_
 
 exp_type: stage2
 tag: stage2
 
 training:
-  # Upstream ran 10 epochs and was best at epoch 9, i.e. longer training was never
-  # tested. Treat length as an HPO axis, not a constant.
-  iterations: 20000
-  lr: 3.e-4
+  # 10 epochs of 19991/64 = 312 steps. Upstream ran weaksup_epochs=10 with
+  # es_patience=10, so early stopping could never fire and "best at epoch 9 of 10"
+  # means longer training was never tried. Treat length as an HPO axis, not a constant.
+  iterations: 3120
+  validate_every_n_steps: 312     # once per epoch, as upstream validates
+  log_every_n_steps: 100
+
+  # cfg.lr, NOT a reduced fine-tuning rate: train_margin_model builds
+  # Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay) with the same
+  # cfg the unsupervised stage used.
+  lr: 1.e-3
+  weight_decay: 1.e-5
+  batchsize: 64                   # per class; a step sees 64 noise + 64 signal
+
+  # Upstream applies no gradient clipping in train_margin_model. Clipping a loss whose
+  # hinge term is deliberately large early on would change what the margin does.
+  clip_grad_norm: null

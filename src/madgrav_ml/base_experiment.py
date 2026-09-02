@@ -271,6 +271,10 @@ class BaseExperiment:
                 self.optimizer,
                 factor=t.reduceplateau_factor,
                 patience=t.reduceplateau_patience,
+                # Upstream passes threshold=1e-3 in both train_unsup_model and
+                # train_margin_model. Torch's default is 1e-4, i.e. ten times more
+                # sensitive, which would drop the LR on improvements upstream ignores.
+                threshold=t.get("reduceplateau_threshold", 1e-3),
             )
         elif t.scheduler == "OneCycleLR":
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -309,7 +313,12 @@ class BaseExperiment:
                     best, best_step = vl, step
                     self._save_model(step="best")
                 if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                    self.scheduler.step(vl)
+                    # A subclass whose model-selection criterion is not its loss sets
+                    # `_scheduler_metric` inside `_validate`. Stage 2 does: upstream
+                    # selects on a detection criterion but steps the LR on the
+                    # validation loss, and driving ReduceLROnPlateau with the selection
+                    # criterion instead would silently rewrite the LR schedule.
+                    self.scheduler.step(getattr(self, "_scheduler_metric", None) or vl)
 
             if self.scheduler is not None and not isinstance(
                 self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau

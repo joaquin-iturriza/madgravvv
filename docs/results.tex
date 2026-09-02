@@ -588,6 +588,78 @@ is what actually buys information, and this analysis uses 30\% of one fold of a
 56-segment set. Upstream's shipped calibration quotes 47.4~yr from a correspondingly
 larger stretch.
 
+\section{Head to head against the distributed weights}
+\label{sec:headtohead}
+
+The comparison in Section~\ref{sec:stage1} was between score distributions on noise
+tiles, which we now know is not the same question as which model detects more. This is
+the same comparison in the currency that decides it. The distributed stage-2 weights were
+substituted for ours and everything else held identical: the same background segments,
+the same 7196-lag slide plan, the same 8000 injections with the same drawn parameters,
+the same vetoes and the same two-channel structure. Each model's threshold is set from
+its \emph{own} time-slide background, which is the only way to compare two statistics
+living on different scales.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+ & Retrained (this work) & Distributed \\
+\midrule
+Efficiency at FAR 100/yr & $0.188$ & $\mathbf{0.240}$ \\
+Threshold, massive channel & $8.21$ & $6.01$ \\
+Threshold, general channel & $21.76$ & $13.13$ \\
+Largest background net $\sigma$ & $32.4$ & $16.7$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The distributed weights are better, by 5.2 percentage points, or 28\% in relative terms.
+The interesting part is where the difference is:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Network SNR & $n$ & Retrained & Distributed \\
+\midrule
+8--10   & 486  & $0.000$ & $0.033$ \\
+10--12  & 469  & $0.004$ & $0.087$ \\
+12--15  & 720  & $0.014$ & $0.153$ \\
+15--20  & 1139 & $0.083$ & $0.212$ \\
+20--25  & 1174 & $0.217$ & $0.288$ \\
+25--32  & 1656 & $0.306$ & $0.319$ \\
+32--40  & 1917 & $0.333$ & $0.335$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The entire gap is at low SNR. Above network SNR 25 the two are indistinguishable, and
+both saturate near $0.33$ --- which is not a property of either model but the fraction of
+injections the vetoes admit to the mass-conditioned channel at those amplitudes. At the
+loud end both front ends are at the veto ceiling and the choice of front end does not
+matter at all.
+
+What separates them at the quiet end is the noise tail, not the signal response. Our
+background reaches net $\sigma = 32.4$ against $16.7$ for the distributed weights, so our
+threshold at a fixed false-alarm rate has to sit almost four units higher in the
+mass-conditioned channel and eight units higher in the general one, and everything
+between those thresholds is signal we lose and they keep. The same asymmetry appears in
+the score distributions of Section~\ref{sec:stage1}: our retrained model had excess
+kurtosis $122$ on held-out noise against $9.3$ for theirs.
+
+That is a specific and encouraging diagnosis. Our front end responds to signal about as
+well as the distributed one --- the high-SNR bins say so directly. What it does worse is
+produce occasional extreme reconstruction errors on noise, and it is those rare tiles,
+not any deficit in sensitivity, that set the threshold everything else must clear.
+Suppressing the tail is a different problem from improving separation, and it is the one
+worth working on.
+
+Two caveats bound this. Our model saw twenty thousand tiles from one fold of O3a and our
+own injection population; the distributed model saw neither, and its training data is not
+public, so this is a comparison of two training runs and not of two architectures. And
+the injections are drawn from our population, which is in-distribution for us and not for
+them --- an asymmetry that, if anything, works against the conclusion above rather than
+for it.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

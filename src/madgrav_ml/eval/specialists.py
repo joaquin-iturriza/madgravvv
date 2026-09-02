@@ -86,6 +86,34 @@ def cam_t0(arm, tiles: np.ndarray, device, chunk: int = 256) -> np.ndarray:
     return out
 
 
+def tile_and_magnitude(whitened: np.ndarray, spec) -> tuple[np.ndarray, np.ndarray]:
+    """One Q-transform, both products: the network tile and the native magnitude.
+
+    The autoencoder reads a resized, min-max normalised 256x128 tile; the specialists
+    read the same transform at full frequency resolution. Computing the Q-transform
+    twice would double the only expensive step in the pipeline for no reason, so this
+    does it once and diverges afterwards.
+    """
+    from madgrav_ml.data.representation import (
+        _crop_bounds, centre_crop, min_max_norm, qtransform, resize,
+    )
+
+    qi = centre_crop(whitened, spec.sample_rate, spec.context_seconds)
+    total_seconds = len(qi) / float(spec.sample_rate)
+    q = qtransform(qi, spec)
+    start, stop = _crop_bounds(q.shape[1], total_seconds, spec.crop_seconds)
+    mag = np.log1p(np.abs(q[:, start:stop])).astype(np.float32)
+
+    tile = resize(mag, spec.size)
+    if spec.amplitude == "minmax":
+        tile = min_max_norm(tile)
+    elif spec.amplitude == "asd":
+        from madgrav_ml.data.representation import noise_referenced_norm
+
+        tile = noise_referenced_norm(tile, spec.noise_mean, spec.noise_std)
+    return tile.astype(np.float32), mag
+
+
 def native_magnitude(whitened: np.ndarray, spec) -> np.ndarray:
     """log1p|Q| at native resolution over the central crop — no resize.
 
@@ -93,13 +121,14 @@ def native_magnitude(whitened: np.ndarray, spec) -> np.ndarray:
     tile the autoencoder sees. Feeding them the tile would change what 113 columns and a
     20-140 Hz band mean.
     """
-    from madgrav_ml.data.representation import _crop_bounds, centre_crop, qtransform
+    return tile_and_magnitude(whitened, spec)[1]
 
-    qi = centre_crop(whitened, spec.sample_rate, spec.context_seconds)
-    total_seconds = len(qi) / float(spec.sample_rate)
-    mag = np.log1p(np.abs(qtransform(qi, spec))).astype(np.float32)
-    start, stop = _crop_bounds(mag.shape[1], total_seconds, spec.crop_seconds)
-    return mag[:, start:stop]
+
+def gate_scores(arm, hm_net, lm_net, mag_h1, mag_l1, tile_h1, device):
+    """(hm, lm) for one coincident pair. The attention peak comes from the H1 tile."""
+    t0 = int(cam_t0(arm, tile_h1[None] if tile_h1.ndim == 2 else tile_h1, device)[0])
+    return specialist_scores(hm_net, lm_net,
+                             specialist_inputs(mag_h1, mag_l1, t0), device), t0
 
 
 def column_for(t0: int, n_columns: int) -> int:

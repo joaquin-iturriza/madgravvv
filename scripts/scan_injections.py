@@ -51,7 +51,9 @@ from madgrav_ml.data.strain import (  # noqa: E402
 )
 from madgrav_ml.data.waveforms import InjectionEngine, LALWaveformBackend  # noqa: E402
 from madgrav_ml.eval import coherence as COH  # noqa: E402
+from madgrav_ml.eval import specialists as SP  # noqa: E402
 from madgrav_ml.eval.folds import FoldGuard, Split  # noqa: E402
+from madgrav_ml.models.arms import GlitchArm, SpecialistCNN  # noqa: E402
 from madgrav_ml.models.cae import BaselineCAE  # noqa: E402
 
 SEGMENTS = REPO / ".reference/MADGRAV/search_mode/o3a_bg_segments_56.json"
@@ -59,30 +61,42 @@ PSD_DIR = REPO / ".reference/MADGRAV/data/o3a_search_prep"
 _CTX: dict = {}
 
 
-def _init(psds, lines, spec, fs, engine):
-    _CTX.update(psds=psds, lines=lines, spec=spec, fs=fs, engine=engine)
+def _init(psds, lines, spec, fs, engine, gate):
+    """Workers own the glitch gate too.
+
+    The gate needs a BACKWARD pass through the arm (Grad-CAM), which is small enough on
+    CPU and keeps the ~2 MB native magnitudes inside the worker instead of shipping them
+    to the parent — 8000 injections x 2 detectors of those would be 37 GB through a pipe.
+    """
+    _CTX.update(psds=psds, lines=lines, spec=spec, fs=fs, engine=engine, gate=gate)
 
 
 def _pair(args):
-    """One injection projected onto both detectors: tiles, plus what the vetoes read.
+    """One injection projected onto both detectors: tiles, vetoes, gate.
 
-    Coherence must be computed on the SAME whitened series the tile came from, and both
-    detectors must carry the same source with its true relative amplitude and arrival
-    delay — that relationship is the entire content of the coherence statistic.
+    Coherence and the specialists must be computed on the SAME whitened series the tile
+    came from, and both detectors must carry the same source with its true relative
+    amplitude and arrival delay — that relationship is the entire content of both vetoes.
     """
     raw_h1, raw_l1, gps, params = args
     try:
-        tiles, coeffs, cents = [], [], []
+        tiles, mags, coeffs, cents = [], [], [], []
         lo = n = None
         for ifo, raw in (("H1", raw_h1), ("L1", raw_l1)):
             w = whiten(raw, _CTX["fs"], reference_psd=_CTX["psds"][ifo])
             w = notch(w, _CTX["fs"], lines=_CTX["lines"][ifo])
             w = _CTX["engine"].inject(w, params, ifo, gps)
+            tile, mag = SP.tile_and_magnitude(w, _CTX["spec"])
             c, lo, n = COH.band_coefficients(w, _CTX["fs"])
-            tiles.append(make_tile(w, _CTX["spec"]).astype(np.float32))
+            tiles.append(tile[None] if tile.ndim == 2 else tile)
+            mags.append(mag)
             coeffs.append(c[0])
             cents.append(float(COH.centroid(w, _CTX["fs"])[0]))
-        return np.stack(tiles), np.stack(coeffs), np.array(cents), lo, n, params
+        g = _CTX["gate"]
+        (hm, lm), t0 = SP.gate_scores(g["arm"], g["hm"], g["lm"], mags[0], mags[1],
+                                      tiles[0][0], g["device"])
+        return (np.stack(tiles), np.stack(coeffs), np.array(cents),
+                lo, n, hm, lm, t0, params)
     except Exception:
         return None
 
@@ -149,11 +163,22 @@ def main() -> int:
     # Group by span so each segment is read once rather than once per injection.
     choice = rng.choice(len(spans), size=args.n_injections, p=live / live.sum())
     t0 = time.time()
-    rows, sH, sL, coh, cen = [], [], [], [], []
+    rows, sH, sL, coh, cen, hms, lms, t0s = [], [], [], [], [], [], [], []
     band_lo = band_n = None
 
+    def load(cls, rel):
+        m = cls()
+        m.load_state_dict(torch.load(REPO / ".reference/MADGRAV" / rel,
+                                     map_location="cpu"), strict=True)
+        return m.eval()
+
+    gate = {"arm": load(GlitchArm, "lr_cascade/p1v42/arm_deploy_seed0.pt"),
+            "hm": load(SpecialistCNN, "search_mode/hm_native_seed0.pt"),
+            "lm": load(SpecialistCNN, "search_mode/lm_native_seed0.pt"),
+            "device": torch.device("cpu")}
+
     with Pool(args.workers, initializer=_init,
-              initargs=(psds, lines, spec, fs, engine)) as pool:
+              initargs=(psds, lines, spec, fs, engine, gate)) as pool:
         for si, ((start, end), pair) in enumerate(spans):
             n_here = int((choice == si).sum())
             if not n_here:
@@ -169,12 +194,13 @@ def main() -> int:
             for out in pool.imap(_pair, work, chunksize=4):
                 if out is None:
                     continue
-                tiles, coeffs, cents, band_lo, band_n, params = out
+                tiles, coeffs, cents, band_lo, band_n, hm, lm, cam_t0, params = out
                 sc = score(model, tiles, device)
                 sH.append(float(sc[0])); sL.append(float(sc[1]))
                 coh.append(float(COH.coherence_from_coefficients(
                     coeffs[0:1], coeffs[1:2], band_lo, band_n)[0]))
                 cen.append(cents)
+                hms.append(hm); lms.append(lm); t0s.append(cam_t0)
                 rows.append(params.as_dict())
             el = time.time() - t0
             print(f"[{si+1}/{len(spans)}] {int(start)}  {len(rows)} injections  "
@@ -189,6 +215,9 @@ def main() -> int:
         score_L1=np.array(sL, dtype=np.float32),
         coherence=np.array(coh, dtype=np.float32),
         centroid_H1=cen[:, 0], centroid_L1=cen[:, 1],
+        cnn_hm=np.array(hms, dtype=np.float32),
+        cnn_lm=np.array(lms, dtype=np.float32),
+        cam_t0=np.array(t0s, dtype=np.int16),
         **{k: np.array([r[k] for r in rows], dtype=np.float32) for k in keys},
     )
     print(f"\ndone: {len(rows)} injections, {(time.time()-t0)/60:.1f} min -> {args.out}")

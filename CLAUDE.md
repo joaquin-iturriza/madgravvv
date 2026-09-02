@@ -189,9 +189,29 @@ not a training target we can hit.
   value on held-out O3a noise. Ten epochs of the published margin recipe moves ours from
   +0.86 to +0.35, nowhere near it.
 
-**Still not done:** time-slide background, any FAR, any efficiency-at-fixed-FAR or VT,
-the glitch arm and specialists, coherence, the LR cascade. The evaluation fold has never
-been touched and stays that way (C4).
+**The first efficiency-at-fixed-FAR measurement, and what it changed.** 6.39 yr of
+time-slide background (2000 lags over 1.17 d of coincident HPO_BG livetime, 4 s
+clustering) against 8000 coincident injections at network SNR U(6, 40) gives
+**efficiency 0.000 at 100, 10 and 1 per year** — every SNR bin, every mass bin. The
+reason is one number: the loudest injection reaches net sigma 19.3 and the background
+reaches 32.4. No threshold admits a signal and excludes the noise.
+
+The instrument is not broken: injection net sigma rises monotonically with SNR (2.92 ->
+6.13 -> 8.28 -> 10.35) and 97.4% of injections raise the per-detector score. It measures
+the raw front-end statistic **with no vetoes**, which upstream never claims is a search —
+its shipped FAR curves are named `far_curve_cond_coh` / `far_curve_global_coh`, both
+conditioned on coherence, and the deployed pipeline also applies a centroid cut, the
+glitch arm, two specialists and an LR cascade first.
+
+**So the plan's ordering was wrong and this measurement corrects it.** Tile-level
+noise/signal separation — what the stage-2 margin optimises and what Phases 3 and 4
+target — is *not* the same as search sensitivity. The binding constraint is the glitch
+tail. A change that sharpens separation and leaves the glitch tail alone buys nothing at
+fixed FAR. **Coherence is therefore a prerequisite for evaluating any front-end change,
+not a later phase.**
+
+**Still not done:** coherence, the glitch arm, specialists, the LR cascade, VT. The
+evaluation fold has never been touched and stays that way (C4).
 
 **Facts established by reading and running the upstream release** (these change what to
 build, so they belong here rather than in results.tex):

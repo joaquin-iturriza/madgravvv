@@ -369,6 +369,101 @@ used to select our checkpoint, so it is held out for the distributed weights and
 ours. Under constraint C4 the clean comparison surface is the quarantined evaluation
 fold, and it stays quarantined until there is a result to report on it.
 
+\section{Efficiency at fixed false-alarm rate, and what it says about the front end}
+\label{sec:far}
+
+\subsection*{The instrument}
+
+Every number before this section was a diagnostic, because none was a false-alarm rate.
+Building one required three things. First, a slice of the training fold that is neither
+fitted to nor \emph{selected} against: the stage-2 checkpoint is chosen to maximise
+detections above a threshold set by the validation noise, so the validation tail is
+mildly optimised and a FAR quoted against it would be optimistic. The training fold now
+splits three ways in GPS order --- fit 50\%, select 20\%, background 30\% --- and the
+fold guard refuses to hand out the background split in any phase but calibration.
+Costing the fit split 25 points is close to free, because it holds $\sim$1.4 million
+distinct 4~s windows and a tile bank draws twenty thousand of them; the background is
+limited by livetime and nothing else.
+
+Second, a scan that pays for the Q-transform once. \texttt{scan\_background.py} writes
+per-detector score \emph{time series} on a grid both detectors share, at 1~s stride so
+that the 1~s crops the network sees are exactly non-overlapping. Time slides afterwards
+are an array roll, which is what makes years of background affordable: 1.17~d of
+coincident livetime becomes 6.39~yr at 2000 lags without touching strain again.
+Triggers are clustered on 4~s, upstream's window --- without it a single glitch at 1~s
+stride is counted four times --- and lags step by 4~s so that consecutive lags cannot
+return the same trigger twice.
+
+Third, a foreground measured through the identical path.
+\texttt{scan\_injections.py} projects one source onto both detectors with a single
+common amplitude scale, the correct antenna factors and the geocentre time delay, so the
+H1/L1 relationship the ranking statistic reads is the one a real source would produce.
+Two independently drawn single-detector injections would score well on a per-detector
+arm and mean nothing coincident.
+
+The ranking statistic is upstream's, read off \texttt{MassiveEventPipeline.\_fullmag}:
+$\sigma_d = (L_d - \mu_d)/s_d$ per detector and
+$\mathrm{net} = (\sigma_{H1} + \sigma_{L1})/\sqrt{2}$ --- the sum over $\sqrt{2}$, not
+the quadrature sum.
+
+\subsection*{The result}
+
+8000 coincident injections, network SNR drawn uniformly in $(6, 40)$, against 6.39~yr of
+time-slide background at a trials factor of 4:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+FAR [1/yr] & net $\sigma$ threshold & Efficiency & 68\% interval \\
+\midrule
+100 & 22.05 & $0.000$ & $[0.000, 0.000]$ \\
+10  & 27.27 & $0.000$ & $[0.000, 0.000]$ \\
+1   & 32.43 & $0.000$ & $[0.000, 0.000]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Zero at every resolvable false-alarm rate, in every SNR bin from 6 to 40 and every total
+mass bin from 20 to 240 $M_\odot$. The reason is a single number: the loudest injection
+in the campaign reaches net $\sigma = 19.3$, and the background reaches $32.4$. There is
+no threshold that admits any signal and excludes the noise.
+
+The instrument is not broken, and that matters, so it is worth stating what was checked.
+Injection net $\sigma$ responds monotonically to network SNR --- median $2.92$, $6.13$,
+$8.28$, $10.35$ across SNR bins $(6,10)$, $(10,15)$, $(15,25)$, $(25,40)$ --- and 97.4\%
+of injections raise the per-detector score above its noise mean, which is the direction
+the margin fine-tune was trained to produce. The signal path works. It is simply
+nowhere near the glitch tail.
+
+\subsection*{What this measures, and what it does not}
+
+It measures the raw front-end statistic \emph{with no vetoes applied}, and upstream
+never claims that quantity is a search. The shipped calibration stores its FAR curves
+under the names \texttt{far\_curve\_cond\_coh} and \texttt{far\_curve\_global\_coh} ---
+both conditioned on coherence --- and the deployed pipeline additionally applies a
+centroid/morphology cut, a glitch arm, two mass-specialist CNNs and a likelihood-ratio
+cascade before quoting anything. What this section measures is therefore how the search's
+discriminating power is divided between the autoencoder and everything downstream of it,
+and the answer is stark: at a fixed FAR, essentially all of it is downstream.
+
+That has a direct consequence for the improvement programme, and it is not the one the
+plan assumed. Improving noise-versus-injection separation at the tile level --- which is
+what the stage-2 margin optimises, and what the representation and readout changes of
+Phases 3 and 4 target --- is \emph{not} the same as improving the search. The binding
+constraint is the glitch tail, not signal sensitivity, and a change that sharpens
+tile-level separation while leaving the glitch tail where it is buys exactly nothing at
+fixed FAR. Any front-end change must therefore be evaluated after the vetoes, which
+makes the coherence cut a prerequisite for the rest of the programme rather than a later
+phase.
+
+One caveat on the background itself. The 6.39~yr of slid livetime contains only 1.17~d
+of distinct noise, so the deep tail is assembled from a small number of recurring loud
+glitches paired against many different samples of the other detector. That is standard
+practice, and it is what upstream does too, but with 1.17~d it is thin: upstream's
+shipped calibration quotes 47.4~yr of background from a correspondingly larger stretch of
+real data. The thresholds above should be read as resolving the shape of the tail, not
+as a precise measurement of its extreme end.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

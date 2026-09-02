@@ -291,6 +291,13 @@ class SegmentReader:
         Livetime-weighted, not uniform over segments: the O3a-56 durations run from 2.6 h
         to 4 h, and drawing segments uniformly would oversample the short ones, quietly
         weighting the noise model toward whatever detector state they happen to hold.
+
+        The `Segment` returned describes the WINDOW, not the parent segment it came from
+        -- same detector, but the drawn GPS bounds. That is strictly more information
+        (the parent is recoverable, the offset is not) and the injection path needs it:
+        the antenna pattern and the H1/L1 arrival-time delay are both functions of GPS
+        time, so a window that cannot say when it happened cannot carry a coherent
+        injection.
         """
         usable = [s for s in segments if s.duration > duration_s]
         if not usable:
@@ -298,4 +305,6 @@ class SegmentReader:
         weights = np.array([s.duration - duration_s for s in usable], dtype=float)
         seg = usable[int(rng.choice(len(usable), p=weights / weights.sum()))]
         offset = float(rng.uniform(0.0, seg.duration - duration_s))
-        return seg, self.window(seg, offset, duration_s, sample_rate)
+        start = seg.start + offset
+        window = Segment(ifo=seg.ifo, start=start, end=start + duration_s)
+        return window, self.window(seg, offset, duration_s, sample_rate)

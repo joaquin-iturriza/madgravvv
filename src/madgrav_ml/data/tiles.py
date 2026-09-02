@@ -97,10 +97,18 @@ class GeneratedTileDataset(IterableDataset):
     """Effectively infinite non-repeating tiles: noise from the allowed fold, plus
     freshly drawn injections and glitches.
 
-    `noise_provider(rng) -> whitened strain` must draw only from segments the current
-    `FoldGuard` phase permits. That is not enforced here on purpose — the guard owns
-    that decision, and duplicating the check in two places is how the two copies drift
-    apart. Wire it as `noise_provider=lambda rng: sampler(guard.segments(Split.TRAIN), rng)`.
+    `noise_provider(rng)` must draw only from segments the current `FoldGuard` phase
+    permits. That is not enforced here on purpose — the guard owns that decision, and
+    duplicating the check in two places is how the two copies drift apart. Wire it as
+    `noise_provider=lambda rng: sampler(guard.segments(Split.TRAIN), rng)`.
+
+    It returns either a whitened strain array, or `(strain, context)` where the context
+    describes the window it came from. The context exists for the injector: the antenna
+    pattern and the geocentre time delay are functions of the detector and the GPS time,
+    so an injection into a window that cannot say which detector it is or when it
+    happened is not a projected signal, it is a waveform pasted onto noise. Stage 1
+    ignores it (`signal_fraction=0`), which is why the second element stays optional
+    rather than forcing a change on a path that already works.
 
     With `seed=None` every worker gets an independent non-repeating stream. With an
     integer seed the stream is deterministic per (seed, worker), which is what a single
@@ -140,10 +148,11 @@ class GeneratedTileDataset(IterableDataset):
         rng = self._rng()
         n = 0
         while self.length is None or n < self.length:
-            strain = self.noise_provider(rng)
+            drawn = self.noise_provider(rng)
+            strain, context = drawn if isinstance(drawn, tuple) else (drawn, None)
             label = 0.0
             if self.signal_fraction and rng.random() < self.signal_fraction:
-                strain = self.injector(strain, rng)
+                strain = self.injector(strain, rng, context)
                 label = 1.0
             x = self.tile_fn(strain)
             if torch is not None:

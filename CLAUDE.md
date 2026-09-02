@@ -392,6 +392,7 @@ the gate invalidates every previously generated slide.
 | `src/madgrav_ml/data/representation.py` | whitening, notches, Q-transform, tiling, normalisation — **owns the R1–R4 ablation axes** |
 | `src/madgrav_ml/data/strain.py` | segments, reference PSDs, cached GWOSC fetch |
 | `src/madgrav_ml/data/injections.py` | injection population sampler + waveform-backend seam (Phase 2) |
+| `src/madgrav_ml/data/waveforms.py` | LAL waveform backend, antenna projection, SNR, the injection engine |
 | `src/madgrav_ml/data/tiles.py` | cached and on-the-fly tile datasets, balanced sampling |
 | `src/madgrav_ml/eval/folds.py` | `FoldGuard`, GPS-grouped folds, the audit trail (**C4**) |
 | `src/madgrav_ml/eval/background.py` | time slides, coincident livetime, slide plans |
@@ -405,7 +406,7 @@ the gate invalidates every previously generated slide.
 | `config/` | Hydra tree: `default`, `model/`, `data/`, `representation/`, `local/`, `param_budget.yaml` |
 | `scripts/` | `remote.sh`, `wait_for_slurm.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py`, `fold_worktree.sh`, `publish_main.sh` |
 | `jobs/` | CC-IN2P3 SLURM scripts |
-| `tests/` | pytest suite (fold guard, FAR arithmetic, efficiency, budget, sweep leakage, plotting, vendored weights) |
+| `tests/` | pytest suite (fold guard, FAR arithmetic, efficiency, budget, sweep leakage, plotting, vendored weights, **representation fidelity vs upstream**, injections) |
 | `docs/results.tex` | the lab notebook; `docs/improvement-plan.md` (gitignored) the plan |
 
 **Reuse upstream rather than reimplementing:** `lr_cascade/vt_vs_mass.py`,
@@ -563,6 +564,32 @@ the runtime check in `param_budget.py`.
 ---
 
 ## Conventions & gotchas
+
+- **Whitening is `MassiveEventPipeline._whiten`, not `utilities.whiten`.** Upstream ships
+  two. `improved/utilities.py::whiten` divides by `sqrt(psd + 1e-40)` and prepares
+  *training* data; the deployed search uses `whiten_batch_gwpy_o1` — gwpy FIR whitening
+  against an ASD floored at `median(psd) * 1e-10`, `fduration=2`, `highpass=20`, then
+  `iirnotch` at **Q=40**. The two are not interchangeable: an O3a PSD is ~3e-47 in band,
+  so that **absolute** `1e-40` epsilon is a million times the signal and whitens nothing.
+  Porting the wrong one cost a full tile bank and a training run — the resulting series
+  correlated **0.28** with the real thing and carried 19% of its band power below 100 Hz
+  where the search path carries 3%. `tests/test_representation.py` now pins our output
+  against the vendored pipeline's own function to 1e-6 relative RMS. **Any new step in
+  the representation gets a test that imports upstream and compares, not a test that
+  checks the output looks reasonable** — every shape check (finite, sensible tile means,
+  a falling loss curve) passed happily throughout.
+- **The deployed O3a search notches the O1 line list.** `_whiten` hard-codes
+  `line_configuration="o1"` even though `infer_line_configuration()` would return `"o3a"`.
+  We match the deployed behaviour (`data.line_configuration: o1`) because matching the
+  shipped weights beats notching the right lines; `o3a` is an R-series ablation and a
+  plausible upstream bug. Line lists live in `data/representation.py` only — a second
+  copy in yaml is how the tile builder ended up notching a silently truncated list.
+- **Injections go in after whitening, and that is exact, not approximate.** Whitening and
+  the notch chain are LTI, so `filter(whiten(n+h)) == filter(whiten(n)) + filter(whiten(h))`.
+  The SNR is computed on the *raw* projection against the reference PSD — where SNR is
+  defined — and applied as a scalar afterwards. `data.snr_convention` decides whether the
+  drawn SNR is the network or the single-detector one; an efficiency curve without that
+  label is uninterpretable.
 
 - **What a run actually used: the audit trail wins, the config lies.** FA has the same
   rule in the form "the recipe wins, `data.dataset` lies". Here: `config.yaml` records

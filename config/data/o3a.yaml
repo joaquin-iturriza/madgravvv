@@ -16,16 +16,24 @@ val_shards: []
 signal_fraction: 0.5       # balanced; the upstream fixed set is 10:1 the other way
 snr_range: [8.0, 25.0]
 approximant: IMRPhenomPv2  # baseline; IMRPhenomXPHM is what the upstream banks use
-waveform_backend: null     # must be set before stage 2 will run — see stage2_margin.py
+waveform_backend: lal      # data/waveforms.py::LALWaveformBackend; null blocks stage 2
+injection_f_lower: 20.0    # matches the high-pass; also the SNR integral's lower limit
+injection_distance_mpc: 1000.0   # cancels under SNR rescaling; sets only the raw scale
+# How `snr_range` is interpreted. `network` scales so sqrt(sum_ifo rho_ifo^2) over both
+# reference PSDs hits the target, then injects into the one detector the tile belongs
+# to; `detector` scales so that detector alone hits it. A tile at rho=8 means a
+# noticeably louder source under `detector`, so an efficiency curve is uninterpretable
+# without knowing which was used. See data/waveforms.py.
+snr_convention: network
 
 reference_psd:
   H1: .reference/MADGRAV/data/o3a_search_prep/reference_psd_H1.npz
   L1: .reference/MADGRAV/data/o3a_search_prep/reference_psd_L1.npz
 
-# 20 Hz high-pass plus notches on calibration lines and 60 Hz mains harmonics.
-notch_lines:
-  H1: [15.1, 15.6, 16.4, 16.7, 17.1, 17.6, 35.9, 36.7, 331.9, 410.3, 1001.3,
-       1083.7, 1153.1, 1501.3, 60.0, 120.0, 180.0, 240.0, 300.0, 360.0, 420.0, 480.0]
-  L1: [15.1, 15.7, 16.3, 16.9, 30.8, 31.4, 32.0, 32.6, 33.2, 33.8, 434.9, 451.2,
-       451.8, 1083.1, 1153.1, 1503.1, 1653.1, 60.0, 120.0, 180.0, 240.0, 300.0,
-       360.0, 420.0, 480.0]
+# Which calibration-line list gets notched. The deployed search calls
+# whiten_batch_gwpy_o1(..., "o1") with the string hard-coded, so the O3a search notches
+# the O1 lines and the O1 L1 dither lines -- that is what the shipped weights saw, so it
+# is the default. "o3a" is an R-series ablation and a likely upstream bug. The lists
+# themselves live in data/representation.py, not here: a second copy in yaml is how the
+# tile builder ended up notching a truncated list nobody noticed.
+line_configuration: o1

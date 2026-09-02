@@ -48,13 +48,14 @@ import numpy as np
 # every worker stuck inside `scipy.linalg.blas`.
 import scipy.ndimage  # noqa: F401,E402
 import scipy.signal  # noqa: F401,E402
+from gwpy.frequencyseries import FrequencySeries  # noqa: F401,E402
 from gwpy.timeseries import TimeSeries  # noqa: F401,E402
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
 from madgrav_ml.data.representation import (  # noqa: E402
-    TileSpec, make_tile, notch_and_highpass, whiten,
+    TileSpec, make_tile, notch, notch_lines_for, whiten,
 )
 from madgrav_ml.data.strain import (  # noqa: E402
     SegmentReader, available_segments, load_reference_psd, load_segments,
@@ -76,7 +77,7 @@ def _one(args):
     raw, ifo = args
     try:
         w = whiten(raw, _CTX["fs"], reference_psd=_CTX["psds"][ifo])
-        w = notch_and_highpass(w, _CTX["fs"], lines=_CTX["lines"][ifo])
+        w = notch(w, _CTX["fs"], lines=_CTX["lines"][ifo])
         return make_tile(w, _CTX["spec"]).astype(np.float32)
     except Exception:
         # A single bad window must not kill a two-hour build. Dropped tiles are counted
@@ -94,6 +95,8 @@ def main() -> int:
     ap.add_argument("--shard-size", type=int, default=2000)
     ap.add_argument("--window-seconds", type=float, default=4.0)
     ap.add_argument("--seed", type=int, default=42)
+    # "o1" is what the deployed search uses even on O3a -- see representation.notch_lines_for.
+    ap.add_argument("--line-configuration", choices=("o1", "o3a"), default="o1")
     args = ap.parse_args()
 
     segs = load_segments(SEGMENTS, ifo="H1") + load_segments(SEGMENTS, ifo="L1")
@@ -108,12 +111,9 @@ def main() -> int:
     spec = TileSpec()
     fs = spec.sample_rate
     psds = {i: load_reference_psd(PSD_DIR / f"reference_psd_{i}.npz") for i in ("H1", "L1")}
-    lines = {
-        "H1": (15.1, 15.6, 16.4, 16.7, 17.1, 17.6, 35.9, 36.7, 331.9, 410.3,
-               60.0, 120.0, 180.0, 240.0, 300.0),
-        "L1": (15.1, 15.7, 16.3, 16.9, 30.8, 31.4, 32.0, 32.6, 33.2, 33.8,
-               60.0, 120.0, 180.0, 240.0, 300.0),
-    }
+    # One source of truth. This used to be a hand-copied, silently truncated version of
+    # the O3a list; the deployed search notches the O1 list instead.
+    lines = {i: notch_lines_for(i, args.line_configuration) for i in psds}
 
     args.out.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)

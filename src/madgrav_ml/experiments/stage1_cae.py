@@ -99,7 +99,7 @@ class Stage1CAEExperiment(BaseExperiment):
         four-second window is a cache miss under the `(ifo, start, end)` key, so calling
         `fetch_strain` here would issue one archive request per training tile.
         """
-        from madgrav_ml.data.representation import notch_and_highpass, whiten
+        from madgrav_ml.data.representation import notch, notch_lines_for, whiten
         from madgrav_ml.data.strain import SegmentReader, available_segments, load_reference_psd
 
         fs = self.spec.sample_rate
@@ -123,12 +123,19 @@ class Stage1CAEExperiment(BaseExperiment):
 
         reader = SegmentReader(cache, capacity=int(self.cfg.data.get("reader_capacity", 2)))
         psds = {ifo: load_reference_psd(p) for ifo, p in self.cfg.data.reference_psd.items()}
-        lines = {ifo: tuple(v) for ifo, v in self.cfg.data.notch_lines.items()}
+        # Derived from one config key, not listed twice: the deployed search notches the
+        # O1 line set even on O3a (see representation.notch_lines_for), and a second
+        # hand-copied list in a yaml file is how that detail silently drifts.
+        config = str(self.cfg.data.get("line_configuration", "o1"))
+        lines = {ifo: notch_lines_for(ifo, config) for ifo in psds}
 
         def provider(rng):
+            # `seg` describes the drawn WINDOW (detector and GPS bounds), and is
+            # returned alongside the strain so stage 2 can project an injection onto
+            # the right detector at the right sidereal time. Stage 1 never looks at it.
             seg, raw = reader.random_window(have, rng, window, fs)
             w = whiten(raw, fs, reference_psd=psds[seg.ifo])
-            return notch_and_highpass(w, fs, lines=lines[seg.ifo])
+            return notch(w, fs, lines=lines[seg.ifo]), seg
 
         return provider
 

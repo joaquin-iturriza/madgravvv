@@ -65,32 +65,65 @@ class Stage2MarginExperiment(Stage1CAEExperiment):
         )
 
     def _injector(self):
-        """Add a freshly drawn waveform to a noise stretch.
+        """Add a freshly drawn, projected, SNR-scaled waveform to a noise window.
 
-        The waveform backend lives behind `data.approximant` so IMRPhenomPv2 (baseline)
-        and IMRPhenomXPHM (the upstream injection banks) are a config switch. Until a
-        backend is wired, this raises rather than silently injecting nothing — a
-        stage-2 run whose "signal" tiles are pure noise would train to a plausible loss
-        curve and be worthless.
+        The waveform backend lives behind `data.waveform_backend` so IMRPhenomPv2
+        (baseline) and IMRPhenomXPHM (the upstream injection banks) are a config switch.
+        If no backend is configured this raises rather than silently injecting nothing —
+        a stage-2 run whose "signal" tiles are pure noise would train to a plausible
+        loss curve and be worthless.
         """
         from madgrav_ml.data.injections import ParameterSampler
+
+        backend = self.cfg.data.get("waveform_backend", None)
+        if backend is None:
+            raise NotImplementedError(
+                "no waveform backend configured (data.waveform_backend). Set it to "
+                "'lal' to use data/waveforms.py::LALWaveformBackend. Running stage 2 "
+                "without one would train on noise labelled as signal."
+            )
+        if backend != "lal":
+            raise ValueError(
+                f"unknown data.waveform_backend {backend!r}; only 'lal' is implemented"
+            )
+
+        from madgrav_ml.data.waveforms import build_engine
 
         sampler = ParameterSampler(
             seed=self.cfg.seed,
             snr_range=tuple(self.cfg.data.snr_range),
         )
-        backend = self.cfg.data.get("waveform_backend", None)
-        if backend is None:
-            raise NotImplementedError(
-                "no waveform backend configured (data.waveform_backend). Set it to a "
-                "callable that turns InjectionParameters into projected detector "
-                "strain — see data/injections.py::WaveformBackend. Running stage 2 "
-                "without one would train on noise labelled as signal."
+        engine = build_engine(self.cfg.data, self.spec.sample_rate)
+        LOGGER.info(
+            f"Injections: {engine.backend.approximant_name} from "
+            f"{engine.backend.f_lower} Hz, SNR {tuple(self.cfg.data.snr_range)} on the "
+            f"'{engine.snr_convention}' convention over {sorted(engine.psds)}"
+        )
+        default_ifo = sorted(engine.psds)[0]
+        # Redraw on an antenna-pattern null. It is a measure-zero event that is
+        # nonetheless hit a few times in a million-tile campaign, and a crash three
+        # hours into a run over a source that simply happened to sit in a blind spot is
+        # a waste; a silent skip that returned pure noise with a signal label would be
+        # far worse, so the retry is bounded and then raises.
+        def inject(strain, rng, context=None):
+            ifo = context.ifo if context is not None else default_ifo
+            # The antenna pattern is evaluated at the coalescence, which sits at the
+            # centre of the window, not at its first sample.
+            gps = None if context is None else 0.5 * (context.start + context.end)
+            for _ in range(8):
+                # The dataset's rng, not the sampler's own: it is seeded per worker, so
+                # this is what keeps eight DataLoader workers from drawing eight copies
+                # of the same injection sequence.
+                params = sampler.draw(rng)
+                try:
+                    return engine.inject(strain, params, ifo, gps)
+                except ValueError as exc:
+                    if "zero SNR" not in str(exc):
+                        raise
+            raise RuntimeError(
+                "eight consecutive draws had zero SNR in every detector; the SNR band "
+                "or the reference PSDs are almost certainly wrong"
             )
-
-        def inject(strain, rng):
-            params = sampler.draw()
-            return backend(strain, params, rng)
 
         return inject
 

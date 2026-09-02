@@ -41,14 +41,26 @@ QTRANSFORM_FRES = 0.5
 CONTEXT_SECONDS = 2.0
 CENTER_CROP_SECONDS = 1.0
 HIGHPASS_HZ = 20.0
+WHITEN_FDURATION = 2.0          # gwpy FIR length; corrupts 1 s at each window edge
+NOTCH_Q = 40.0
+ASD_FLOOR_RELATIVE = 1e-10      # PSD floor as a fraction of the PSD's own median
 POWERLINE_BASE_HZ = 60.0
 POWERLINE_HARMONICS = tuple(POWERLINE_BASE_HZ * n for n in range(1, 9))
+CAL_LINES_O1 = {
+    "H1": (35.9, 36.7, 37.3, 331.9),
+    "L1": (33.7, 34.7, 35.3, 331.3),
+}
+L1_O1_DITHER_LINES = (600.1, 625.1, 650.1, 675.1)
 CAL_LINES_O3A = {
     "H1": (15.1, 15.6, 16.4, 16.7, 17.1, 17.6, 35.9, 36.7, 331.9, 410.3,
            1001.3, 1083.7, 1153.1, 1501.3),
     "L1": (15.1, 15.7, 16.3, 16.9, 30.8, 31.4, 32.0, 32.6, 33.2, 33.8,
            434.9, 451.2, 451.8, 1083.1, 1153.1, 1503.1, 1653.1),
 }
+# Which of the two the DEPLOYED search uses is not a matter of taste -- see
+# `notch_lines_for` below. "o1" is the default because it is what the shipped weights
+# were built against, not because it is the physically right choice for O3a.
+LINE_CONFIGURATION = "o1"
 
 
 @dataclass
@@ -104,15 +116,102 @@ class TileSpec:
 
 # --- whitening ----------------------------------------------------------------
 
-def whiten(x: np.ndarray, fs: int = FS, reference_psd: tuple | None = None,
-           nperseg: int = 1024) -> np.ndarray:
-    """Divide the Fourier transform by sqrt(PSD) so the noise is flat and unit-variance.
+def notch_lines_for(ifo: str, configuration: str = LINE_CONFIGURATION) -> tuple[float, ...]:
+    """The line list the pipeline notches for `ifo`.
 
-    `reference_psd` is `(freqs, psd)`. The upstream search whitens against a
-    *run-averaged* reference ASD, not against the local segment, which is what makes
-    a single frozen model transferable across O3a/O3b/O4a/O4b — the reference PSDs
-    ship in `data/<run>_search_prep/reference_psd_{H1,L1}.npz`. Estimating the PSD
-    from the segment itself (the fallback here) is only for smoke tests.
+    Upstream keeps two lists and a `infer_line_configuration()` that would pick "o3a"
+    for an O3a prep directory — but `MassiveEventPipeline._whiten` calls
+    `whiten_batch_gwpy_o1(..., "o1")` with the string hard-coded, so the O3a search
+    actually notches the **O1** calibration lines and the O1 L1 dither lines. The
+    shipped weights were therefore built against `configuration="o1"`, which is why
+    that is the default here: matching the deployed model matters more than notching
+    the physically correct lines. `configuration="o3a"` is an R-series ablation, and a
+    plausible upstream bug worth reporting separately.
+    """
+    lines = list(POWERLINE_HARMONICS)
+    if configuration == "o3a":
+        lines.extend(CAL_LINES_O3A[ifo])
+    elif configuration == "o1":
+        lines.extend(CAL_LINES_O1[ifo])
+        if ifo == "L1":
+            lines.extend(L1_O1_DITHER_LINES)
+    else:
+        raise ValueError(f"unknown line configuration {configuration!r}")
+    return tuple(lines)
+
+
+def reference_asd(reference_psd: tuple, floor_relative: float = ASD_FLOOR_RELATIVE):
+    """`(freqs, psd)` -> a gwpy ASD `FrequencySeries`, floored the way upstream floors it.
+
+    The floor is RELATIVE — `median(psd) * 1e-10` — and that detail is load-bearing.
+    An O3a reference PSD runs from 3e-51 to 7e-40, so an *absolute* floor anywhere near
+    1e-40 swamps the entire sensitive band and the "whitening" degenerates into a
+    constant rescale. See `whiten_spectral`.
+    """
+    from gwpy.frequencyseries import FrequencySeries
+
+    f, psd = reference_psd
+    psd = np.asarray(psd, dtype=np.float64)
+    positive = psd[np.isfinite(psd) & (psd > 0.0)]
+    if positive.size == 0:
+        raise ValueError("reference PSD has no positive finite bins")
+    floored = np.maximum(psd, float(np.median(positive)) * floor_relative)
+    f = np.asarray(f, dtype=np.float64)
+    return FrequencySeries(np.sqrt(floored), f0=float(f[0]), df=float(f[1] - f[0]))
+
+
+def whiten(x: np.ndarray, fs: int = FS, reference_psd: tuple | None = None,
+           fduration: float = WHITEN_FDURATION,
+           highpass_hz: float = HIGHPASS_HZ,
+           floor_relative: float = ASD_FLOOR_RELATIVE) -> np.ndarray:
+    """The whitening the deployed search performs, ported exactly.
+
+    `MassiveEventPipeline._whiten` -> `whiten_batch_gwpy_o1`:
+
+        ts  = TimeSeries(x - mean(x), sample_rate=fs)
+        tsw = ts.whiten(asd=<floored reference ASD>, fduration=2.0, highpass=20)
+
+    which is a time-domain FIR whitening filter, not a spectral division. The 20 Hz
+    high-pass is part of it, so there is no separate high-pass step afterwards. The FIR
+    corrupts `fduration / 2` = 1 s at each edge of the window, which is exactly why the
+    pipeline whitens 4 s and keeps only the central 2 s of context.
+
+    `reference_psd` is `(freqs, psd)`, the *run-averaged* reference that ships in
+    `data/<run>_search_prep/reference_psd_{H1,L1}.npz`. Whitening against the run
+    average rather than the local segment is what makes one frozen model transferable
+    across observing runs; the ASD-consistency veto at the end of the upstream pipeline
+    exists precisely because the two differ.
+
+    WHY THIS REPLACED A SPECTRAL DIVISION. The first version of this function ported
+    `improved/utilities.py::whiten`, which divides by `sqrt(psd + 1e-40)`. That is the
+    training-data helper, not the search path, and its absolute epsilon is ~1e6 times
+    the real PSD across the whole sensitive band — so it whitened nothing. Every tile
+    built before this fix is invalid.
+    """
+    from gwpy.timeseries import TimeSeries
+
+    x = np.asarray(x, dtype=np.float64)
+    if reference_psd is None:
+        raise ValueError(
+            "whiten() needs the run-averaged reference PSD; a segment-local estimate "
+            "is a different operation and is not what the shipped weights saw"
+        )
+    ts = TimeSeries(x - x.mean(), sample_rate=fs)
+    asd = reference_asd(reference_psd, floor_relative)
+    tsw = ts.whiten(asd=asd, fduration=fduration, highpass=highpass_hz)
+    return np.asarray(tsw.value, dtype=np.float64)
+
+
+def whiten_spectral(x: np.ndarray, fs: int = FS, reference_psd: tuple | None = None,
+                    nperseg: int = 1024,
+                    floor_relative: float = ASD_FLOOR_RELATIVE) -> np.ndarray:
+    """Plain spectral division, `X / sqrt(PSD)`. An ablation, not the default.
+
+    This is upstream's `improved/utilities.py::whiten` with its absolute `+1e-40`
+    replaced by the same relative floor `reference_asd` uses. Kept because "does the
+    FIR conditioning matter, or would a spectral divide do?" is a real question for the
+    R-series, and because the two differ mainly at the window edges — which the centre
+    crop discards anyway.
     """
     from scipy.signal import welch
 
@@ -121,29 +220,29 @@ def whiten(x: np.ndarray, fs: int = FS, reference_psd: tuple | None = None,
         f, psd = reference_psd
     else:
         f, psd = welch(x, fs=fs, nperseg=nperseg)
+    psd = np.asarray(psd, dtype=np.float64)
+    positive = psd[np.isfinite(psd) & (psd > 0.0)]
+    floor = float(np.median(positive)) * floor_relative if positive.size else 0.0
+    psd = np.maximum(psd, floor)
     X = np.fft.rfft(x)
     freqs = np.fft.rfftfreq(len(x), 1.0 / fs)
-    psd_i = np.interp(freqs, f, psd)
-    return np.fft.irfft(X / np.sqrt(psd_i + 1e-40), n=len(x))
+    return np.fft.irfft(X / np.sqrt(np.interp(freqs, f, psd)), n=len(x))
 
 
-def notch_and_highpass(
-    x: np.ndarray,
-    fs: int = FS,
-    highpass_hz: float = HIGHPASS_HZ,
-    lines: tuple[float, ...] = (),
-    q: float = 30.0,
-) -> np.ndarray:
-    """20 Hz high-pass plus notches on calibration lines and mains harmonics."""
-    from scipy.signal import butter, iirnotch, sosfiltfilt, tf2sos
+def notch(x: np.ndarray, fs: int = FS, lines: tuple[float, ...] = (),
+          q: float = NOTCH_Q) -> np.ndarray:
+    """Notch the calibration and mains lines, Q=40, `filtfilt` — as `apply_o1_notches`.
 
-    x = np.asarray(x, dtype=np.float64)
-    sos = butter(4, highpass_hz, btype="highpass", fs=fs, output="sos")
-    y = sosfiltfilt(sos, x)
+    No high-pass here: `whiten` already applied it inside the FIR, and running a second
+    Butterworth over the same corner would be a filter the shipped weights never saw.
+    """
+    from scipy.signal import filtfilt, iirnotch
+
+    y = np.asarray(x, dtype=np.float64).copy()
     for f0 in lines:
         if 0 < f0 < fs / 2:
-            b, a = iirnotch(f0, q, fs)
-            y = sosfiltfilt(tf2sos(b, a), y)
+            b, a = iirnotch(w0=f0, Q=q, fs=fs)
+            y = filtfilt(b, a, y)
     return y
 
 

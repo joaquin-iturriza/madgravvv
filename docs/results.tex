@@ -104,72 +104,50 @@ at import time, which does not suppress \texttt{FileExistsError} when the path e
 a dangling link rather than a directory. The documented demonstration therefore fails on
 a fresh clone, in a way that resembles a local environment fault.
 
-\section{The retrained front end and the shipped weights}
-\label{sec:stage1}
+\section{Whitening: which upstream function the weights were built with}
+\label{sec:whitening}
 
-We trained the reimplemented stage-1 autoencoder on a bank of 19\,991 noise tiles drawn
-from the training fold of the O3a background set, following the upstream recipe: Adam at
-$10^{-3}$, weight decay $10^{-5}$, batch 64, \texttt{ReduceLROnPlateau}(0.5, 5), and ten
-epochs. Best validation loss occurred at epoch 9 of 10, which is where the upstream
-description also places it.
+The upstream repository contains two whitening implementations, and they are not
+equivalent. \texttt{improved/utilities.py::whiten} divides the Fourier transform by
+$\sqrt{S(f) + 10^{-40}}$ and is used by \texttt{whiten\_batch} when preparing training
+data. The deployed search does something else: \texttt{MassiveEventPipeline.\_whiten}
+calls \texttt{whiten\_batch\_gwpy\_o1}, which builds a \textsc{gwpy}
+\texttt{TimeSeries} and applies a time-domain FIR whitening filter against the
+run-averaged reference ASD with \texttt{fduration}~$=2$~s and a 20~Hz high-pass, then
+notches the calibration and mains lines with $Q=40$.
 
-Scoring that model and the distributed weights on the same 2002 held-out noise tiles
-gives distributions that differ in shape rather than in scale. Standardising each to zero
-mean and unit variance, so that the comparison is of the tail that sets the false-alarm
-rate rather than of an arbitrary normalisation:
+The distinction matters twice over. First, the additive $10^{-40}$ in the former is an
+\emph{absolute} floor, while an O3a reference PSD spans $3\times10^{-51}$ to
+$7\times10^{-40}$ and sits near $3\times10^{-47}$ at 100~Hz. The epsilon therefore
+exceeds the physical PSD by roughly six orders of magnitude across the whole sensitive
+band, and the division degenerates into a near-constant rescaling. The search path
+instead floors at $10^{-10}$ times the PSD's own median, which touches no in-band bin.
+Second, the FIR conditioning corrupts \texttt{fduration}/2~$=1$~s at each edge of the
+window, which is precisely why the pipeline whitens 4~s and retains only the central
+2~s of context.
 
-\begin{center}
-\begin{tabular}{lrr}
-\toprule
-Standardised score & Retrained (stage 1) & Distributed (stage 2) \\
-\midrule
-median            & $+0.05$ & $-0.12$ \\
-99th percentile   & $+2.12$ & $+3.31$ \\
-99.9th percentile & $+3.32$ & $+7.94$ \\
-maximum           & $+7.01$ & $+13.01$ \\
-skewness          & $-0.41$ & $+3.14$ \\
-excess kurtosis   & $+2.17$ & $+25.4$ \\
-\bottomrule
-\end{tabular}
-\end{center}
+We initially ported the former. On real O3a strain the resulting series correlates with
+the correctly whitened one at $0.28$, and its band power is inverted: 19\% below 100~Hz
+against 3\% for the search path, and 0.5\% between 100 and 500~Hz against 16\%. Every
+tile built before this was corrected is therefore a time--frequency map of essentially
+unwhitened, low-frequency-dominated strain, and the stage-1 comparison reported in an
+earlier version of this note is withdrawn in full; its measured association between
+reconstruction error and tile brightness was a property of that red-tilted input, not of
+the model. Nothing in Section~\ref{sec:repro} is affected, because the reproduction gate
+executes upstream's own code.
 
-The distributed model has a pronounced heavy right tail on pure noise; the retrained
-stage-1 model does not. More striking is that the two disagree about \emph{which} tiles
-are difficult: their per-tile errors have a Spearman rank correlation of $-0.285$.
+Our implementation now agrees with \texttt{\_whiten} to a relative RMS difference of
+$4\times10^{-8}$ on the retained 2~s, which is the float32 round-trip of upstream's own
+output, and that agreement is asserted by a test that imports the vendored pipeline
+rather than reimplementing it.
 
-That anticorrelation has a single clean explanation. Ranking each model's error against
-elementary properties of the tile gives
-
-\begin{center}
-\begin{tabular}{lrr}
-\toprule
-Tile property (Spearman $\rho$ with error) & Retrained & Distributed \\
-\midrule
-mean pixel value      & $+0.70$ & $-0.57$ \\
-pixel standard deviation & $+0.89$ & $-0.51$ \\
-fraction of pixels above 0.5 & $+0.89$ & $-0.50$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-The retrained model finds busy, bright tiles hard, which is what a reconstruction
-objective should do: there is more structure to reproduce. The distributed model finds
-\emph{dark, sparse} tiles hard. This follows directly from the weak-supervision margin,
-which is trained to raise reconstruction error on signal tiles, and a signal tile is
-exactly a sparse bright track on an otherwise dark field once per-tile min--max
-normalisation has set the dynamic range from its loudest pixel.
-
-Two consequences. First, this comparison does not yet constitute the reproduction
-requirement of Section~\ref{sec:repro}: the retrained model is stage 1 and the
-distributed one is stage 2, so the sign reversal is expected rather than anomalous, and
-the requirement cannot be assessed until the margin fine-tune is also reproduced, which
-needs an injection campaign. Second, and independently of that, the measurement is direct
-evidence that a substantial component of the distributed score is a response to tile
-sparsity rather than to any property specific to the noise distribution. The per-tile
-min--max normalisation makes sparsity and loudness two views of the same quantity, so a
-score built on it is exploitable in a way a likelihood ratio would not be. This supports
-the case for both a tile-independent amplitude scaling and a learned readout in place of
-reconstruction error.
+A third detail was found in passing. \texttt{improved\_pipeline} defines both O1 and O3a
+calibration-line lists and an \texttt{infer\_line\_configuration()} that selects
+\texttt{"o3a"} for an O3a preparation directory, but \texttt{\_whiten} passes the string
+\texttt{"o1"} literally, so the O3a search notches the O1 calibration lines and the O1
+L1 dither lines. We match the deployed behaviour by default, since matching the shipped
+weights takes precedence over notching the physically appropriate lines, and treat the
+O3a list as an ablation.
 
 \section{Results}
 

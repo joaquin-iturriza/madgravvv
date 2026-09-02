@@ -98,10 +98,11 @@ class ParameterSampler:
         self.spin_max = spin_max
         self.time_shift_range = time_shift_range
 
-    def _masses(self) -> tuple[float, float]:
+    def _masses(self, rng=None) -> tuple[float, float]:
+        rng = self.rng if rng is None else rng
         lo, hi = self.component_range
         for _ in range(10_000):
-            m1, m2 = self.rng.uniform(lo, hi, size=2)
+            m1, m2 = rng.uniform(lo, hi, size=2)
             m1, m2 = max(m1, m2), min(m1, m2)
             if not (self.total_range[0] <= m1 + m2 <= self.total_range[1]):
                 continue
@@ -114,25 +115,34 @@ class ParameterSampler:
             "mutually unsatisfiable"
         )
 
-    def draw(self) -> InjectionParameters:
-        m1, m2 = self._masses()
+    def draw(self, rng=None) -> InjectionParameters:
+        """Draw one source. Pass `rng` to use a caller-owned stream.
+
+        Multi-worker generated datasets MUST pass their own rng. The sampler's internal
+        stream is seeded once at construction, and a DataLoader forks the whole dataset
+        into every worker, so eight workers sharing this sampler would draw eight
+        identical injection sequences — a fifth of the "effectively infinite" training
+        set Phase 2 is for, and invisible in any loss curve.
+        """
+        m1, m2 = self._masses(rng)
+        r = self.rng if rng is None else rng
         return InjectionParameters(
             mass1=m1,
             mass2=m2,
-            spin1z=float(self.rng.uniform(-self.spin_max, self.spin_max)),
-            spin2z=float(self.rng.uniform(-self.spin_max, self.spin_max)),
-            network_snr=float(self.rng.uniform(*self.snr_range)),
-            ra=float(self.rng.uniform(0.0, 2.0 * np.pi)),
+            spin1z=float(r.uniform(-self.spin_max, self.spin_max)),
+            spin2z=float(r.uniform(-self.spin_max, self.spin_max)),
+            network_snr=float(r.uniform(*self.snr_range)),
+            ra=float(r.uniform(0.0, 2.0 * np.pi)),
             # isotropic on the sphere, not uniform in declination
-            dec=float(np.arcsin(self.rng.uniform(-1.0, 1.0))),
-            psi=float(self.rng.uniform(0.0, np.pi)),
-            inclination=float(np.arccos(self.rng.uniform(-1.0, 1.0))),
-            phase=float(self.rng.uniform(0.0, 2.0 * np.pi)),
-            time_shift=float(self.rng.uniform(*self.time_shift_range)),
+            dec=float(np.arcsin(r.uniform(-1.0, 1.0))),
+            psi=float(r.uniform(0.0, np.pi)),
+            inclination=float(np.arccos(r.uniform(-1.0, 1.0))),
+            phase=float(r.uniform(0.0, 2.0 * np.pi)),
+            time_shift=float(r.uniform(*self.time_shift_range)),
         )
 
-    def draw_many(self, n: int) -> list[InjectionParameters]:
-        return [self.draw() for _ in range(n)]
+    def draw_many(self, n: int, rng=None) -> list[InjectionParameters]:
+        return [self.draw(rng) for _ in range(n)]
 
 
 def rescale_to_network_snr(

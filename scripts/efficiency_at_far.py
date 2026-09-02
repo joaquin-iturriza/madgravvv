@@ -50,7 +50,8 @@ def main() -> int:
     with open(f"{args.far_curve}.json") as fh:
         cal = json.load(fh)
     bg_blob = np.load(f"{args.far_curve}_background.npz")
-    background = bg_blob["net_sigma"].astype(np.float64)
+    channels = {c: bg_blob[f"net_sigma_{c}"].astype(np.float64)
+                for c in ("massive", "general")}
     T = float(bg_blob["background_livetime_s"])
     norm = cal["sigma_norm"]
 
@@ -64,6 +65,18 @@ def main() -> int:
     snr = z["network_snr"].astype(np.float64)
     mtot = (z["mass1"] + z["mass2"]).astype(np.float64)
 
+    # Each injection is ranked against the channel its own vetoes put it in — the same
+    # branch the background triggers went through. Scoring every injection against the
+    # massive background regardless of whether it passes the vetoes would be quoting a
+    # threshold the source never had to clear.
+    from madgrav_ml.eval import coherence as COH
+
+    massive = COH.is_massive(z["coherence"], z["centroid_H1"], z["centroid_L1"])
+    print(f"vetoes: {massive.mean():.3f} of injections reach the massive channel "
+          f"(coherence >= {COH.TCOH:.4f} and both centroids < {COH.F_CUT_HZ:.1f} Hz)")
+    print(f"        median injection coherence {np.median(z['coherence']):.4f}, "
+          f"median centroid H1 {np.median(z['centroid_H1']):.1f} Hz")
+
     trials = TrialsFactor(2, 2) if args.trials == 4 else args.trials
     T_yr = T / (365.25 * 86400.0)
     floor = (trials.value if hasattr(trials, "value") else trials) / T_yr
@@ -74,14 +87,19 @@ def main() -> int:
 
     targets = [t for t in (100.0, 10.0, 1.0) if t >= floor]
     results = {}
-    print(f"{'FAR [1/yr]':>11}{'net sigma':>11}{'efficiency':>12}{'68% interval':>18}")
+    print(f"\n{'FAR [1/yr]':>11}{'thr massive':>13}{'thr general':>13}"
+          f"{'efficiency':>12}{'68% interval':>18}")
     for t in targets:
-        thr = threshold_at_far(background, T, far_target=t, trials=trials)
-        k = int((net > thr).sum())
+        thr = {c: threshold_at_far(v, T, far_target=t, trials=trials) if v.size else np.inf
+               for c, v in channels.items()}
+        # A trigger clears the search if it beats the threshold OF ITS OWN CHANNEL.
+        found = np.where(massive, net > thr["massive"], net > thr["general"])
+        k = int(found.sum())
         lo, hi = wilson(k, net.size)
         results[t] = {"threshold": thr, "efficiency": k / net.size,
                       "interval": [lo, hi], "n_found": k, "n_total": int(net.size)}
-        print(f"{t:>11.0f}{thr:>11.2f}{k/net.size:>12.3f}   [{lo:.3f}, {hi:.3f}]")
+        print(f"{t:>11.0f}{thr['massive']:>13.2f}{thr['general']:>13.2f}"
+              f"{k/net.size:>12.3f}   [{lo:.3f}, {hi:.3f}]")
 
     edges = [6, 8, 10, 12, 15, 20, 25, 32, 40]
     print(f"\nefficiency vs network SNR")
@@ -94,22 +112,29 @@ def main() -> int:
             continue
         line = f"{f'{lo_e}-{hi_e}':<10}{int(m.sum()):>7}"
         for t in targets:
-            k = int((net[m] > results[t]["threshold"]).sum())
+            thr = results[t]["threshold"]
+            k = int(np.where(massive[m], net[m] > thr["massive"],
+                             net[m] > thr["general"]).sum())
             e = k / int(m.sum())
             curves[t].append((0.5 * (lo_e + hi_e), e, int(m.sum()), k))
             line += f"{e:>12.3f}"
         print(line)
 
-    print(f"\nnet sigma: background max {background.max():.2f}, "
-          f"99.99th {np.percentile(background, 99.99):.2f}; "
-          f"injections max {net.max():.2f}, median {np.median(net):.2f}")
+    for c, v in channels.items():
+        print(f"\nnet sigma, {c} background: n={v.size} max "
+              f"{v.max() if v.size else float('nan'):.2f}")
+    print(f"injections: max {net.max():.2f}, median {np.median(net):.2f}; "
+          f"in the massive channel max "
+          f"{net[massive].max() if massive.any() else float('nan'):.2f}")
     print(f"\nefficiency vs total mass, at FAR {targets[-1]:.0f}/yr")
     thr = results[targets[-1]]["threshold"]
     for lo_e, hi_e in ((20, 60), (60, 100), (100, 240)):
         m = (mtot >= lo_e) & (mtot < hi_e)
         if m.any():
-            print(f"  Mtot {lo_e:>3}-{hi_e:<3}  n={int(m.sum()):>5}  "
-                  f"eff={float((net[m] > thr).mean()):.3f}")
+            e = float(np.where(massive[m], net[m] > thr["massive"],
+                               net[m] > thr["general"]).mean())
+            print(f"  Mtot {lo_e:>3}-{hi_e:<3}  n={int(m.sum()):>5}  eff={e:.3f}  "
+                  f"(massive channel {massive[m].mean():.2f})")
 
     use_style()
     import matplotlib.pyplot as plt
@@ -126,8 +151,11 @@ def main() -> int:
     axes[0].set_xlabel("network SNR"); axes[0].set_ylabel("detection efficiency")
     axes[0].set_ylim(-0.02, 1.02); axes[0].legend(fontsize=8)
 
-    grid = np.linspace(background.min(), max(background.max(), net.max()), 400)
-    axes[1].plot(grid, far_of(grid, background, T, trials=trials), label="background")
+    for c, v in channels.items():
+        if not v.size:
+            continue
+        grid = np.linspace(v.min(), max(v.max(), net.max()), 400)
+        axes[1].plot(grid, far_of(grid, v, T, trials=trials), label=f"{c} background")
     # The loudest injection, drawn on the same axis. If it sits to the LEFT of every
     # quoted threshold then no source in the campaign is detectable at that FAR, and
     # the efficiency table below is a row of honest zeros rather than a broken pairing.
@@ -135,7 +163,7 @@ def main() -> int:
                     label=f"loudest injection ({net.max():.1f})")
     axes[1].axhline(floor, ls=":", color="0.5", label=f"floor {floor:.2g}/yr")
     for t in targets:
-        axes[1].plot(results[t]["threshold"], t, "o", ms=5)
+        axes[1].plot(results[t]["threshold"]["massive"], t, "o", ms=5, color="C0")
     axes[1].set_yscale("log")
     axes[1].set_xlabel(r"net $\sigma$"); axes[1].set_ylabel("FAR [1/yr]")
     axes[1].legend(fontsize=8)

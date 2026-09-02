@@ -50,6 +50,7 @@ from madgrav_ml.data.strain import (  # noqa: E402
     SegmentReader, available_segments, load_reference_psd, load_segments,
 )
 from madgrav_ml.data.waveforms import InjectionEngine, LALWaveformBackend  # noqa: E402
+from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval.folds import FoldGuard, Split  # noqa: E402
 from madgrav_ml.models.cae import BaselineCAE  # noqa: E402
 
@@ -63,16 +64,25 @@ def _init(psds, lines, spec, fs, engine):
 
 
 def _pair(args):
-    """One injection: project onto both detectors, tile both. Returns (tiles, params)."""
+    """One injection projected onto both detectors: tiles, plus what the vetoes read.
+
+    Coherence must be computed on the SAME whitened series the tile came from, and both
+    detectors must carry the same source with its true relative amplitude and arrival
+    delay — that relationship is the entire content of the coherence statistic.
+    """
     raw_h1, raw_l1, gps, params = args
     try:
-        out = []
+        tiles, coeffs, cents = [], [], []
+        lo = n = None
         for ifo, raw in (("H1", raw_h1), ("L1", raw_l1)):
             w = whiten(raw, _CTX["fs"], reference_psd=_CTX["psds"][ifo])
             w = notch(w, _CTX["fs"], lines=_CTX["lines"][ifo])
             w = _CTX["engine"].inject(w, params, ifo, gps)
-            out.append(make_tile(w, _CTX["spec"]).astype(np.float32))
-        return np.stack(out), params
+            c, lo, n = COH.band_coefficients(w, _CTX["fs"])
+            tiles.append(make_tile(w, _CTX["spec"]).astype(np.float32))
+            coeffs.append(c[0])
+            cents.append(float(COH.centroid(w, _CTX["fs"])[0]))
+        return np.stack(tiles), np.stack(coeffs), np.array(cents), lo, n, params
     except Exception:
         return None
 
@@ -139,7 +149,8 @@ def main() -> int:
     # Group by span so each segment is read once rather than once per injection.
     choice = rng.choice(len(spans), size=args.n_injections, p=live / live.sum())
     t0 = time.time()
-    rows, sH, sL = [], [], []
+    rows, sH, sL, coh, cen = [], [], [], [], []
+    band_lo = band_n = None
 
     with Pool(args.workers, initializer=_init,
               initargs=(psds, lines, spec, fs, engine)) as pool:
@@ -158,9 +169,12 @@ def main() -> int:
             for out in pool.imap(_pair, work, chunksize=4):
                 if out is None:
                     continue
-                tiles, params = out
-                s = score(model, tiles, device)
-                sH.append(float(s[0])); sL.append(float(s[1]))
+                tiles, coeffs, cents, band_lo, band_n, params = out
+                sc = score(model, tiles, device)
+                sH.append(float(sc[0])); sL.append(float(sc[1]))
+                coh.append(float(COH.coherence_from_coefficients(
+                    coeffs[0:1], coeffs[1:2], band_lo, band_n)[0]))
+                cen.append(cents)
                 rows.append(params.as_dict())
             el = time.time() - t0
             print(f"[{si+1}/{len(spans)}] {int(start)}  {len(rows)} injections  "
@@ -168,10 +182,13 @@ def main() -> int:
 
     keys = sorted(rows[0]) if rows else []
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    cen = np.asarray(cen, dtype=np.float32)
     np.savez_compressed(
         args.out,
         score_H1=np.array(sH, dtype=np.float32),
         score_L1=np.array(sL, dtype=np.float32),
+        coherence=np.array(coh, dtype=np.float32),
+        centroid_H1=cen[:, 0], centroid_L1=cen[:, 1],
         **{k: np.array([r[k] for r in rows], dtype=np.float32) for k in keys},
     )
     print(f"\ndone: {len(rows)} injections, {(time.time()-t0)/60:.1f} min -> {args.out}")

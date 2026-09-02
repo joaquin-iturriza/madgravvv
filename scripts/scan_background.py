@@ -45,6 +45,7 @@ from madgrav_ml.data.representation import (  # noqa: E402
 from madgrav_ml.data.strain import (  # noqa: E402
     SegmentReader, available_segments, load_reference_psd, load_segments,
 )
+from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval.folds import FoldGuard, Split  # noqa: E402
 from madgrav_ml.models.cae import BaselineCAE  # noqa: E402
 
@@ -58,11 +59,20 @@ def _init(psds, lines, spec, fs):
 
 
 def _tile(args):
+    """Tile, plus everything the vetoes need from the same whitened series.
+
+    Coherence is stored as in-band Fourier coefficients rather than as a 1 s waveform:
+    481 complex numbers instead of 4096 real samples, losslessly for what the statistic
+    reads, and the lag scan downstream becomes one transform per pair instead of 91 dot
+    products. Recomputing the whitening later to get them would cost another full scan.
+    """
     raw, ifo = args
     try:
         w = whiten(raw, _CTX["fs"], reference_psd=_CTX["psds"][ifo])
         w = notch(w, _CTX["fs"], lines=_CTX["lines"][ifo])
-        return make_tile(w, _CTX["spec"]).astype(np.float32)
+        coeffs, lo, n = COH.band_coefficients(w, _CTX["fs"])
+        return (make_tile(w, _CTX["spec"]).astype(np.float32),
+                coeffs[0], float(COH.centroid(w, _CTX["fs"])[0]), lo, n)
     except Exception:
         return None
 
@@ -139,31 +149,45 @@ def main() -> int:
                 print(f"[{si+1}/{len(mine)}] {int(start)} already done", flush=True)
                 continue
             scores: dict[str, np.ndarray] = {}
+            coeffs: dict[str, np.ndarray] = {}
+            cents: dict[str, np.ndarray] = {}
+            band_lo = band_n = None
             offsets = None
             for ifo in ("H1", "L1"):
                 arr = reader.segment(pair[ifo])
                 starts = np.arange(0, arr.size - n_samp, step, dtype=np.int64)
                 offsets = starts
                 windows = ((arr[i:i + n_samp], ifo) for i in starts)
-                vals, buf = [], []
+                vals, buf, cf, ct = [], [], [], []
                 # imap keeps the grid ordered; a permuted score series would make every
                 # time slide meaningless while looking perfectly healthy.
-                for tile in pool.imap(_tile, windows, chunksize=8):
-                    # A failed window must not shift the grid. NaN holds its place and
-                    # is dropped by name downstream, never by silently closing the gap.
-                    buf.append(np.zeros((1,) + spec.size, np.float32) if tile is None
-                               else tile)
+                for out in pool.imap(_tile, windows, chunksize=8):
+                    # A failed window must not shift the grid: a zero tile and zero
+                    # coefficients hold its place. Closing the gap instead would
+                    # misalign every time slide past that point.
+                    if out is None:
+                        buf.append(np.zeros((1,) + spec.size, np.float32))
+                        cf.append(np.zeros(cf[0].shape if cf else 1, np.complex64))
+                        ct.append(0.0)
+                    else:
+                        tile, coef, cen, band_lo, band_n = out
+                        buf.append(tile); cf.append(coef); ct.append(cen)
                     if len(buf) >= args.batch:
                         vals.append(score_batch(model, buf, device))
                         buf = []
                 if buf:
                     vals.append(score_batch(model, buf, device))
                 scores[ifo] = np.concatenate(vals) if vals else np.array([])
+                coeffs[ifo] = np.stack(cf).astype(np.complex64)
+                cents[ifo] = np.array(ct, dtype=np.float32)
             gps = start + offsets / fs + 0.5 * args.window_seconds
-            np.savez_compressed(out_path, gps=gps.astype(np.float64),
-                                score_H1=scores["H1"].astype(np.float32),
-                                score_L1=scores["L1"].astype(np.float32),
-                                stride=args.stride, span=np.array([start, end]))
+            np.savez(out_path, gps=gps.astype(np.float64),
+                     score_H1=scores["H1"].astype(np.float32),
+                     score_L1=scores["L1"].astype(np.float32),
+                     coeff_H1=coeffs["H1"], coeff_L1=coeffs["L1"],
+                     centroid_H1=cents["H1"], centroid_L1=cents["L1"],
+                     band_lo=band_lo, band_n=band_n,
+                     stride=args.stride, span=np.array([start, end]))
             total += len(gps)
             el = time.time() - t0
             print(f"[{si+1}/{len(mine)}] {int(start)}  {len(gps)} grid points  "

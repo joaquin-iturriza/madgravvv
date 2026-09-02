@@ -1,19 +1,23 @@
 #!/usr/bin/env python
-"""Time slides over the scanned background -> a false-alarm rate curve.
+"""Time slides over the scanned background -> two-channel false-alarm rate curves.
 
-The scan is the expensive part and is already done; this is pure numpy. Rolling L1's
-score series against H1's inside each segment destroys astrophysical coincidence while
+Rolling L1 against H1 inside each segment destroys astrophysical coincidence while
 preserving each detector's own noise character, so every lag buys another copy of the
-coincident livetime. 1.4 days becomes years.
+coincident livetime.
 
-The ranking statistic is upstream's, read off `MassiveEventPipeline._fullmag`:
+TWO CHANNELS, because that is what the deployed pipeline does. A trigger whose centroids
+are both below `f_cut` AND whose coherence clears `tcoh` is ranked against the
+mass-conditioned background; everything else is ranked against the general one. The
+shipped calibration stores exactly this pair, as `far_curve_cond_coh` and
+`far_curve_global_coh`. Ranking every trigger against a single pooled background would
+be a different, and much weaker, search -- the point of the veto is that the surviving
+population is small, so the same statistic buys a lower FAR inside it.
 
-    sigma_d = (recon_error_d - mu_d) / sd_d          per detector
-    net     = (sigma_H1 + sigma_L1) / sqrt(2)
+The ranking statistic is upstream's, from `MassiveEventPipeline._fullmag`:
 
-Note it is the SUM over sqrt(2), not the quadrature sum. That matters: the sum rewards
-a coherent excess in both detectors and penalises a deficit in one, while quadrature
-would treat a single loud detector the same as two moderate ones.
+    sigma_d = (recon_error_d - mu_d) / sd_d ;  net = (sigma_H1 + sigma_L1) / sqrt(2)
+
+the SUM over sqrt(2), not the quadrature sum.
 
   scripts/remote.sh .venv/bin/python scripts/far_curve.py --n-lags 2000
 """
@@ -30,6 +34,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
+from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval.background import make_slide_plan  # noqa: E402
 from madgrav_ml.eval.far import TrialsFactor, far_of, threshold_at_far  # noqa: E402
 
@@ -37,11 +42,9 @@ from madgrav_ml.eval.far import TrialsFactor, far_of, threshold_at_far  # noqa: 
 def cluster(net: np.ndarray, half_width: int) -> np.ndarray:
     """Keep only local maxima within +-`half_width` samples.
 
-    A loud glitch at 1 s stride lights up every window that contains it, so without
-    this one noise excursion is counted four times over and the background is inflated
-    by a factor that has nothing to do with the detector. Upstream clusters on 4 s,
-    which is also why `make_slide_plan` steps lags by 4 s: consecutive lags then cannot
-    return the same trigger twice.
+    A loud glitch at 1 s stride lights up every window containing it, so without this one
+    excursion is counted four times over. Upstream clusters on 4 s, which is also why
+    lags step by 4 s: consecutive lags then cannot return the same trigger twice.
     """
     from scipy.ndimage import maximum_filter1d
 
@@ -58,11 +61,12 @@ def main() -> int:
     ap.add_argument("--n-lags", type=int, default=2000)
     ap.add_argument("--lag-step", type=float, default=4.0)
     ap.add_argument("--cluster-seconds", type=float, default=4.0)
-    ap.add_argument("--keep-above", type=float, default=2.0,
-                    help="store slide triggers above this net sigma; below it the "
-                         "curve is not quotable anyway and the arrays get large")
-    ap.add_argument("--trials", type=int, default=4,
-                    help="upstream: 2 statistics x 2 arms")
+    ap.add_argument("--keep-above", type=float, default=6.0,
+                    help="compute vetoes and store triggers above this net sigma; the "
+                         "quoted thresholds are far above it and coherence is the "
+                         "expensive part")
+    ap.add_argument("--trials", type=int, default=4)
+    ap.add_argument("--batch", type=int, default=20000)
     args = ap.parse_args()
 
     files = sorted(args.background.glob("bg_*.npz"))
@@ -70,73 +74,95 @@ def main() -> int:
         print(f"no background shards in {args.background}", file=sys.stderr)
         return 1
 
-    segs, stride = [], None
+    segs, stride, lo, nfft = [], None, None, None
     for f in files:
-        with np.load(f) as z:
-            segs.append((z["score_H1"].astype(np.float64), z["score_L1"].astype(np.float64)))
-            stride = float(z["stride"])
-    n_points = sum(len(h) for h, _ in segs)
+        z = np.load(f)
+        if "coeff_H1" not in z.files:
+            print(f"{f.name} predates the coherence scan; re-run scan_background.py",
+                  file=sys.stderr)
+            return 1
+        segs.append({
+            "h": z["score_H1"].astype(np.float64), "l": z["score_L1"].astype(np.float64),
+            "ch": z["coeff_H1"], "cl": z["coeff_L1"],
+            "gh": z["centroid_H1"].astype(np.float64),
+            "gl": z["centroid_L1"].astype(np.float64),
+        })
+        stride, lo, nfft = float(z["stride"]), int(z["band_lo"]), int(z["band_n"])
+    n_points = sum(len(s["h"]) for s in segs)
     coincident_s = n_points * stride
     print(f"{len(segs)} segments, {n_points} grid points at {stride} s stride "
           f"= {coincident_s / 86400:.3f} d coincident livetime")
 
-    # Per-detector normalisation, upstream's sigma_norm. Fitted on the background's own
-    # bulk: it is a two-parameter linear rescaling over ~1e5 samples, it does not select
-    # on the tail, and without it net sigma is not defined at all. Upstream fits theirs
-    # on separate splits and ships the numbers; ours travel with the run.
-    all_h = np.concatenate([h for h, _ in segs])
-    all_l = np.concatenate([l for _, l in segs])
+    all_h = np.concatenate([s["h"] for s in segs])
+    all_l = np.concatenate([s["l"] for s in segs])
     norm = {"muH": float(all_h.mean()), "sdH": float(all_h.std()),
             "muL": float(all_l.mean()), "sdL": float(all_l.std())}
     print(f"sigma_norm: muH={norm['muH']:.6g} sdH={norm['sdH']:.6g} "
           f"muL={norm['muL']:.6g} sdL={norm['sdL']:.6g}")
-
-    sig = [((h - norm["muH"]) / norm["sdH"], (l - norm["muL"]) / norm["sdL"])
-           for h, l in segs]
+    for s in segs:
+        s["sh"] = (s["h"] - norm["muH"]) / norm["sdH"]
+        s["sl"] = (s["l"] - norm["muL"]) / norm["sdL"]
 
     plan = make_slide_plan(coincident_s, args.n_lags, lag_step_s=args.lag_step)
     half = int(round(0.5 * args.cluster_seconds / stride))
-    shift = int(round(args.lag_step / stride))
+    kept = {"massive": [], "general": []}
+    n_clustered = 0
 
-    kept, n_clustered = [], 0
-    for i, lag in enumerate(plan.lags_s):
+    for li, lag in enumerate(plan.lags_s):
         k = int(round(lag / stride))
-        for sh, sl in sig:
-            if len(sh) <= abs(k) or len(sh) <= 2 * half:
+        for s in segs:
+            n = len(s["sh"])
+            if n <= abs(k) or n <= 2 * half:
                 continue
-            net = (sh + np.roll(sl, k)) / np.sqrt(2.0)
+            # np.roll(x, k)[i] == x[i - k], so H1 at grid point i is paired with L1 at
+            # (i - k) mod n. The same index map has to be used for the coefficients and
+            # the centroids or the veto would be evaluated on a different pair than the
+            # statistic.
+            j = (np.arange(n) - k) % n
+            net = (s["sh"] + s["sl"][j]) / np.sqrt(2.0)
             m = cluster(net, half)
             n_clustered += int(m.sum())
-            v = net[m]
-            v = v[v > args.keep_above]
-            if v.size:
-                kept.append(v)
-        if (i + 1) % 500 == 0:
-            print(f"  {i+1}/{len(plan.lags_s)} lags, {sum(len(v) for v in kept)} "
-                  f"stored triggers", flush=True)
+            idx = np.flatnonzero(m & (net > args.keep_above))
+            if not idx.size:
+                continue
+            for b in range(0, idx.size, args.batch):
+                sel = idx[b:b + args.batch]
+                coh = COH.coherence_from_coefficients(
+                    s["ch"][sel], s["cl"][j[sel]], lo, nfft)
+                massive = COH.is_massive(coh, s["gh"][sel], s["gl"][j[sel]])
+                kept["massive"].append(net[sel][massive])
+                kept["general"].append(net[sel][~massive])
+        if (li + 1) % 500 == 0:
+            print(f"  {li+1}/{len(plan.lags_s)} lags, "
+                  f"{sum(v.size for v in kept['massive'])} massive / "
+                  f"{sum(v.size for v in kept['general'])} general stored", flush=True)
 
-    background = np.concatenate(kept) if kept else np.array([])
     T = plan.background_livetime_s
-    print(f"\nbackground: {plan.background_livetime_yr:.2f} yr over "
-          f"{len(plan.lags_s)} lags; {n_clustered} clustered triggers, "
-          f"{background.size} stored above net sigma {args.keep_above}")
-
+    channels = {c: (np.concatenate(v) if v else np.array([])) for c, v in kept.items()}
     trials = TrialsFactor(2, 2) if args.trials == 4 else args.trials
-    floor = (trials.value if hasattr(trials, "value") else trials) / plan.background_livetime_yr
+    tv = trials.value if hasattr(trials, "value") else trials
+    floor = tv / plan.background_livetime_yr
+    print(f"\nbackground: {plan.background_livetime_yr:.2f} yr over "
+          f"{len(plan.lags_s)} lags; {n_clustered} clustered triggers")
+    for c, v in channels.items():
+        print(f"  {c:8s}: {v.size} stored above net sigma {args.keep_above}"
+              + (f", max {v.max():.2f}" if v.size else ""))
+    frac = channels["massive"].size / max(1, sum(v.size for v in channels.values()))
+    print(f"  coherence+morphology keeps {frac:.4f} of loud background triggers")
     print(f"smallest resolvable FAR at trials={args.trials}: {floor:.3g}/yr")
 
-    rows = []
-    for target in (100.0, 10.0, 1.0, 0.1):
-        if target < floor:
-            print(f"FAR {target}/yr: BELOW the resolvable floor, not quoted")
-            continue
-        thr = threshold_at_far(background, T, far_target=target, trials=trials)
-        rows.append({"far_per_yr": target, "net_sigma_threshold": thr})
-        print(f"FAR {target:>6}/yr  ->  net sigma >= {thr:.3f}")
+    rows = {}
+    for c, v in channels.items():
+        rows[c] = []
+        for target in (100.0, 10.0, 1.0, 0.1):
+            if target < floor or v.size == 0:
+                continue
+            thr = threshold_at_far(v, T, far_target=target, trials=trials)
+            rows[c].append({"far_per_yr": target, "net_sigma_threshold": thr})
+            print(f"  [{c:8s}] FAR {target:>6}/yr  ->  net sigma >= {thr:.3f}")
 
     out = {
-        "sigma_norm": norm,
-        "stride_s": stride,
+        "sigma_norm": norm, "stride_s": stride,
         "cluster_seconds": args.cluster_seconds,
         "coincident_livetime_s": coincident_s,
         "slide_plan": plan.as_dict(),
@@ -144,13 +170,19 @@ def main() -> int:
         "keep_above_net_sigma": args.keep_above,
         "trials_factor": args.trials,
         "smallest_resolvable_far_per_yr": floor,
+        "massive_fraction_of_loud_background": frac,
+        "veto": {"tcoh": COH.TCOH, "f_cut_hz": COH.F_CUT_HZ,
+                 "coherence_band_hz": list(COH.COHERENCE_BAND_HZ),
+                 "lag_samples": COH.LAG_SAMPLES},
         "thresholds": rows,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with open(f"{args.out}.json", "w") as fh:
         json.dump(out, fh, indent=2)
-    np.savez_compressed(f"{args.out}_background.npz", net_sigma=background.astype(np.float32),
-                        background_livetime_s=T)
+    np.savez_compressed(
+        f"{args.out}_background.npz", background_livetime_s=T,
+        net_sigma_massive=channels["massive"].astype(np.float32),
+        net_sigma_general=channels["general"].astype(np.float32))
 
     import matplotlib.pyplot as plt
 
@@ -158,14 +190,16 @@ def main() -> int:
 
     use_style()
     fig, ax = plt.subplots(figsize=(6.0, 4.0))
-    grid = np.linspace(max(args.keep_above, background.min()), background.max(), 300)
-    ax.plot(grid, far_of(grid, background, T, trials=trials))
-    ax.axhline(floor, ls=":", label=f"resolvable floor {floor:.2g}/yr")
+    for c, v in channels.items():
+        if not v.size:
+            continue
+        grid = np.linspace(v.min(), v.max(), 300)
+        ax.plot(grid, far_of(grid, v, T, trials=trials), label=f"{c} channel")
+    ax.axhline(floor, ls=":", color="0.5", label=f"floor {floor:.2g}/yr")
     ax.set_yscale("log")
-    ax.set_xlabel(r"net $\sigma$")
-    ax.set_ylabel("false-alarm rate [1/yr]")
-    ax.set_title(f"{plan.background_livetime_yr:.1f} yr of time slides, "
-                 f"trials={args.trials}", fontsize=9)
+    ax.set_xlabel(r"net $\sigma$"); ax.set_ylabel("false-alarm rate [1/yr]")
+    ax.set_title(f"{plan.background_livetime_yr:.1f} yr of slides, trials={args.trials}",
+                 fontsize=9)
     ax.legend(fontsize=8)
     save_figure(fig, args.out)
     print(f"\nwrote {args.out}.json / .png / .pdf")

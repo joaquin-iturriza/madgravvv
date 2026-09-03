@@ -170,7 +170,7 @@ def main() -> int:
     choice = rng.choice(len(spans), size=args.n_injections, p=live / live.sum())
     t0 = time.time()
     rows, sH, sL, coh, cen, hms, lms, t0s = [], [], [], [], [], [], [], []
-    gH, gL = [], []
+    gH, gL, span_ix = [], [], []
     band_lo = band_n = None
 
     def load(cls, rel):
@@ -207,6 +207,10 @@ def main() -> int:
                 sc = score(model, tiles, device)
                 sH.append(float(sc[0])); sL.append(float(sc[1]))
                 gH.append(float(arm[0])); gL.append(float(arm[1]))
+                # Which coincident span this injection landed in. The likelihood ratio
+                # has to be fitted somewhere, and a model fitted on the span it later
+                # scores is the same leak the fold guard exists to stop one level up.
+                span_ix.append(si)
                 coh.append(float(COH.coherence_from_coefficients(
                     coeffs[0:1], coeffs[1:2], band_lo, band_n)[0]))
                 cen.append(cents)
@@ -225,6 +229,7 @@ def main() -> int:
         score_L1=np.array(sL, dtype=np.float32),
         coherence=np.array(coh, dtype=np.float32),
         centroid_H1=cen[:, 0], centroid_L1=cen[:, 1],
+        span_index=np.array(span_ix, dtype=np.int16),
         arm_H1=np.array(gH, dtype=np.float32),
         arm_L1=np.array(gL, dtype=np.float32),
         cnn_hm=np.array(hms, dtype=np.float32),

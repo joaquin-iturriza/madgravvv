@@ -64,14 +64,29 @@ def main() -> int:
                     help="which frozen fold scores everything. Both were fitted on "
                          "upstream data disjoint from ours, so either is held out for "
                          "us; the other is the robustness check.")
+    ap.add_argument("--model", type=Path, default=None,
+                    help="our own fold-disciplined fit from fit_lr.py. Without it the "
+                         "SHIPPED coefficients are used, which were fitted on O3a "
+                         "background from the same segments we measure on -- the rate "
+                         "that comes out is optimistic by an unknown amount.")
     ap.add_argument("--gate", action="store_true",
                     help="also require max(HM,LM) >= 0.5 on the foreground")
     args = ap.parse_args()
 
-    frozen = LR.load_frozen(FROZEN)
-    mu, sd, beta = frozen[args.fold]
-    print(f"frozen LR fold {args.fold}: beta = "
-          + " ".join(f"{b:+.3f}" for b in beta))
+    own = None
+    if args.model is not None:
+        m = np.load(args.model)
+        own = {g: (m[f"mu{g}"], m[f"sd{g}"], m[f"be{g}"]) for g in (0, 1)}
+        span_fold = m["fold"]
+        print("using our own fold-disciplined fit; each trigger is scored by the "
+              "model that did not see its span")
+        for g in (0, 1):
+            print(f"  fold {g} beta = " + " ".join(f"{b:+.3f}" for b in own[g][2]))
+    else:
+        frozen = LR.load_frozen(FROZEN)
+        mu, sd, beta = frozen[args.fold]
+        print(f"SHIPPED LR fold {args.fold} (fitted on O3a background overlapping ours "
+              f"-- rate is optimistic): beta = " + " ".join(f"{b:+.3f}" for b in beta))
 
     segs, stride, lo, nfft = [], None, None, None
     for f in sorted(args.background.glob("bg_*.npz")):
@@ -111,7 +126,7 @@ def main() -> int:
     t0 = time.time()
     for li, lag in enumerate(plan.lags_s):
         k = int(round(lag / stride))
-        for s in segs:
+        for si, s in enumerate(segs):
             n = len(s["sh"])
             if n <= abs(k) or n <= 2 * half:
                 continue
@@ -119,7 +134,11 @@ def main() -> int:
             coh = COH.coherence_from_coefficients(s["ch"], s["cl"][j], lo, nfft)
             f = LR.features(s["sh"], s["sl"][j], coh, s["gh"], s["gl"][j],
                             s["ah"], s["al"][j])
-            ll = LR.log_likelihood_ratio(f, mu, sd, beta)
+            if own is not None:
+                # scored by the model that did NOT see this span
+                ll = LR.log_likelihood_ratio(f, *own[1 - int(span_fold[si])])
+            else:
+                ll = LR.log_likelihood_ratio(f, mu, sd, beta)
             m = cluster(ll, half) & (ll > args.keep_above)
             if m.any():
                 kept.append(ll[m])
@@ -142,7 +161,14 @@ def main() -> int:
     sL = (z["score_L1"].astype(np.float64) - norm["muL"]) / norm["sdL"]
     f = LR.features(sH, sL, z["coherence"], z["centroid_H1"], z["centroid_L1"],
                     z["arm_H1"], z["arm_L1"])
-    ll = LR.log_likelihood_ratio(f, mu, sd, beta)
+    if own is not None:
+        if "span_index" not in z.files:
+            print("foreground has no span_index; re-run scan_injections.py",
+                  file=sys.stderr)
+            return 1
+        ll = LR.score_held_out(f, span_fold[z["span_index"].astype(int)], own)
+    else:
+        ll = LR.log_likelihood_ratio(f, mu, sd, beta)
     keep = np.ones(len(ll), bool)
     if args.gate:
         keep = ~SP.is_glitch(z["cnn_hm"], z["cnn_lm"])

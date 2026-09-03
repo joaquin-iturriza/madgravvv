@@ -16,6 +16,9 @@ set -e
 PROJ=/sps/lpnhe/jiturrizaramirez01/madgrav
 cd "$PROJ"
 mkdir -p runs/_logs
-echo "=== madgrav LR on $(hostname) | ${SLURM_CPUS_PER_TASK:-?} cores | args: $* ==="
-$PROJ/.venv/bin/python -u scripts/far_lr.py "$@"
+# First argument is the script, as in job_far.sh, so this one job covers both the fit
+# and the measurement.
+SCRIPT="${1:-scripts/far_lr.py}"; [ -f "$SCRIPT" ] && shift || SCRIPT=scripts/far_lr.py
+echo "=== madgrav LR on $(hostname) | ${SLURM_CPUS_PER_TASK:-?} cores | $SCRIPT | args: $* ==="
+$PROJ/.venv/bin/python -u "$SCRIPT" "$@"
 echo "=== done ==="

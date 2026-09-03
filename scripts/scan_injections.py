@@ -95,8 +95,14 @@ def _pair(args):
         g = _CTX["gate"]
         (hm, lm), t0 = SP.gate_scores(g["arm"], g["hm"], g["lm"], mags[0], mags[1],
                                       tiles[0][0], g["device"])
+        # The 5-seed arm ensemble logit, the LR cascade's `g` feature. Computed here
+        # rather than in the parent because the parent's tensors live on the GPU while
+        # these arms are CPU copies shared with the Grad-CAM.
+        with torch.no_grad():
+            x = torch.from_numpy(np.stack(tiles)).float()
+            arm = np.mean([a(x).numpy() for a in g["arms"]], axis=0)
         return (np.stack(tiles), np.stack(coeffs), np.array(cents),
-                lo, n, hm, lm, t0, params)
+                lo, n, hm, lm, t0, arm, params)
     except Exception:
         return None
 
@@ -175,7 +181,7 @@ def main() -> int:
 
     # Five seeds for the LR cascade's `g` feature; seed 0 also does the Grad-CAM.
     arms = [load(GlitchArm, f"lr_cascade/p1v42/arm_deploy_seed{i}.pt") for i in range(5)]
-    gate = {"arm": arms[0],
+    gate = {"arm": arms[0], "arms": arms,
             "hm": load(SpecialistCNN, "search_mode/hm_native_seed0.pt"),
             "lm": load(SpecialistCNN, "search_mode/lm_native_seed0.pt"),
             "device": torch.device("cpu")}
@@ -197,13 +203,10 @@ def main() -> int:
             for out in pool.imap(_pair, work, chunksize=4):
                 if out is None:
                     continue
-                tiles, coeffs, cents, band_lo, band_n, hm, lm, cam_t0, params = out
+                tiles, coeffs, cents, band_lo, band_n, hm, lm, cam_t0, arm, params = out
                 sc = score(model, tiles, device)
                 sH.append(float(sc[0])); sL.append(float(sc[1]))
-                with torch.no_grad():
-                    x = torch.from_numpy(np.asarray(tiles)).float().to(device)
-                    g = np.mean([a(x).cpu().numpy() for a in arms], axis=0)
-                gH.append(float(g[0])); gL.append(float(g[1]))
+                gH.append(float(arm[0])); gL.append(float(arm[1]))
                 coh.append(float(COH.coherence_from_coefficients(
                     coeffs[0:1], coeffs[1:2], band_lo, band_n)[0]))
                 cen.append(cents)

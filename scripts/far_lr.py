@@ -54,8 +54,11 @@ def main() -> int:
     ap.add_argument("--n-lags", type=int, default=100000)
     ap.add_argument("--lag-step", type=float, default=4.0)
     ap.add_argument("--cluster-seconds", type=float, default=4.0)
-    ap.add_argument("--keep-above", type=float, default=-2.0,
-                    help="store slide triggers with loglr above this")
+    ap.add_argument("--keep-above", type=float, default=4.0,
+                    help="store slide triggers with loglr above this. Upstream's own "
+                         "candidate floor is 4.5; the thresholds quoted below sit in "
+                         "the top few hundred of the whole background, and a floor of "
+                         "-2 stores 58 million triggers to use 300 of them.")
     ap.add_argument("--trials", type=int, default=4)
     ap.add_argument("--fold", type=int, default=0, choices=(0, 1),
                     help="which frozen fold scores everything. Both were fitted on "

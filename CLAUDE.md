@@ -307,8 +307,40 @@ This is not our improvement — it is a component upstream already has that we w
 missing. What is new is that the measurement chain detected it cleanly at a size the seed
 spread cannot explain.
 
-**Still not done:** the LR cascade, VT, and any change that is actually ours. The
-evaluation fold has never been touched and stays that way (C4).
+**THE LIKELIHOOD RATIO IS THE BIG ONE.** Same background, same injections, same seven
+measured quantities — the only difference is threshold-them vs rank-on-them.
+
+| FAR [1/yr] | chain of cuts | likelihood ratio | LR seed range |
+|---|---|---|---|
+| 100 | 0.196 | **0.642** | 0.612-0.679 |
+| 30 | 0.017 | **0.544** | 0.501-0.589 |
+| 10 | 0.000 | **0.421** | 0.378-0.454 |
+| 1 | 0.000 | **0.220** | 0.186-0.241 |
+
++0.446 at 100/yr against a 0.045 seed spread — 10x the bar. No new training, no new
+parameters.
+
+**THE SHIPPED LR COEFFICIENTS LEAK — NEVER USE THEM ON OUR BACKGROUND.**
+`driver_search_multi.fit_lr` fits at RUN TIME on O3a background and protects itself with
+two folds; `data/o3a_frozen_lr_off200.npz` is that fit, on the same 56-segment set our
+HPO_BG comes from. Using it gives 0.698 at 100/yr against 0.642 refitted properly — the
+leak is worth ~6 points. `scripts/fit_lr.py` refits with upstream's recipe on
+span-disjoint halves of HPO_BG; `far_lr.py --model` scores each trigger by the model that
+did not see its span. **"Frozen and shipped" does not mean "safe to use" — check what a
+distributed artifact was fitted on.**
+
+Two mechanisms, do not conflate them: (1) the cut chain's ceiling at ~0.24 was the
+vetoes removing 74% of signal before ranking; the LR removes nothing. (2) The arm logit
+(+2.87 on injections vs -5.75 on background, two largest coefficients after coherence)
+entered the cut chain ONLY as a Grad-CAM crop position — its value was never ranked on.
+
+This is NOT a better front end. The autoencoder is unchanged. The gain is in the readout,
+which is where Phase 4 says to look.
+
+**Still not done:** VT, an injection family different from the one the LR was fitted on
+(the efficiency above is optimistic for sources outside it — the point of an anomaly
+search), and any change that is actually ours. The evaluation fold has never been touched
+and stays that way (C4).
 
 **Facts established by reading and running the upstream release** (these change what to
 build, so they belong here rather than in results.tex):

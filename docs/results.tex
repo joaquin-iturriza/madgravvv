@@ -758,6 +758,97 @@ Sections~\ref{sec:far} and~\ref{sec:coherence} detected the change cleanly, at a
 seed spread cannot explain. That is the first evidence that the instrument can do the job
 the improvement programme needs it to do.
 
+\section{Ranking on one statistic instead of a chain of cuts}
+\label{sec:lr}
+
+\subsection*{The leak, first}
+
+The likelihood ratio's coefficients ship with the package, in
+\texttt{data/o3a\_frozen\_lr\_off200.npz}, and it is tempting to use them the way the
+network weights are used. They cannot be. \texttt{driver\_search\_multi.fit\_lr} fits the
+model \emph{at run time} on O3a background and protects itself by fitting two models on
+two folds and scoring a fold-$g$ trigger with model $1-g$; the shipped file is that fit,
+on the same 56-segment O3a set our background is drawn from. Reusing it discards the
+protection --- whichever fold is chosen, the model has seen noise from the segments we
+then measure a false-alarm rate on.
+
+Doing it anyway gives efficiency $0.698$ at a false-alarm rate of 100/yr. Refitting with
+fold discipline gives $0.642$. The leak is worth about six efficiency points, roughly a
+tenth of the effect, which is small enough that the conclusion survives and large enough
+that reporting the first number would have been wrong.
+
+Everything below uses our own fit: upstream's recipe (balanced class weights, ridge, the
+coherence coefficient constrained non-negative) on span-disjoint halves of HPO\_BG, with
+every trigger and every injection scored by the model that did not see its span. The
+chain is then clean throughout --- the autoencoder fitted on HPO\_TRAIN, its checkpoint
+selected on HPO\_VAL, the ranking statistic fitted on half of HPO\_BG and the rate
+measured on the other half, with the evaluation fold untouched. The refit is stable
+across folds ($\beta_\mathrm{coh} = +0.780$ against $+0.768$, every other coefficient
+agreeing to about $0.1$), which is the first evidence that seven features and a few
+hundred thousand noise rows determine it.
+
+\subsection*{The result}
+
+Three seeds, same background, same injections, same measured quantities. The only
+difference is whether coherence, the centroids and the arm are used as thresholds or as
+features of a single ranking statistic.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+FAR [1/yr] & Chain of cuts & Likelihood ratio & Seed range (LR) \\
+\midrule
+100 & $0.196$ & $\mathbf{0.642}$ & $0.612$--$0.679$ \\
+30  & $0.017$ & $\mathbf{0.544}$ & $0.501$--$0.589$ \\
+10  & $0.000$ & $\mathbf{0.421}$ & $0.378$--$0.454$ \\
+3   & $0.000$ & $\mathbf{0.300}$ & $0.262$--$0.327$ \\
+1   & $0.000$ & $\mathbf{0.220}$ & $0.186$--$0.241$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At 100/yr the difference is $+0.446$ against a seed spread of $0.045$ --- ten times the
+bar established in Section~\ref{sec:baseline}. Below 15/yr the cut-based pipeline detects
+nothing at all, and the likelihood ratio recovers a fifth of the population at 1/yr. No
+new training, no new parameters, no new information: the same seven measured quantities,
+combined rather than thresholded.
+
+\subsection*{Where the gain comes from, and what it is not}
+
+Two mechanisms, and they should not be conflated.
+
+The first is that a chain of cuts discards everything except the last stage's ordering.
+The vetoes of Section~\ref{sec:coherence} kept 25.7\% of injections and, because the
+survivors were then ranked on net $\sigma$ alone, imposed a hard ceiling near $0.24$ ---
+no threshold could recover a source the vetoes had already removed. The likelihood ratio
+has no such ceiling because it never removes anything; a source that is marginal on
+coherence can still rank highly if it is convincing on the arm and on both detector
+amplitudes.
+
+The second is that the arm enters at all. The glitch arm's 5-seed ensemble logit averages
+$+2.87$ on injections against $-5.75$ on background, and it carries the two largest
+coefficients after coherence. In the cut-based chain that quantity was used only to place
+the Grad-CAM crop --- its actual value never entered the ranking. Recovering it costs
+nothing, since the arm was already being evaluated.
+
+What this is \emph{not} is a better front end. The autoencoder is unchanged, and
+Section~\ref{sec:headtohead} showed the front end saturates at the loud end regardless.
+The gain is in the readout, which is where Phase~4 of the plan says to look.
+
+\subsection*{Caveats}
+
+The likelihood ratio's signal model is fitted on injections drawn from the same
+population it is evaluated on. The evaluation injections lie in the held-out span and
+were never seen, but the population is shared, and an efficiency measured against the
+same waveform family a search was tuned on is optimistic for sources outside it --- which
+is the entire point of an anomaly search. Quantifying that needs an injection set drawn
+from a different family, and it is not done here.
+
+The distributed weights run through the identical clean chain give $0.788$ at 100/yr and
+$0.602$ at 1/yr. As Section~\ref{sec:headtohead} argued, that comparison is not
+interpretable --- different training sets, ours much smaller --- and it is recorded only
+so the number is not mistaken for a target later.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

@@ -47,6 +47,7 @@ from madgrav_ml.data.strain import (  # noqa: E402
 )
 from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval.folds import FoldGuard, Split  # noqa: E402
+from madgrav_ml.models.arms import GlitchArm  # noqa: E402
 from madgrav_ml.models.cae import BaselineCAE  # noqa: E402
 
 SEGMENTS = REPO / ".reference/MADGRAV/search_mode/o3a_bg_segments_56.json"
@@ -91,6 +92,17 @@ def score_batch(model, tiles: list[np.ndarray], device) -> np.ndarray:
     return model.reconstruction_error(x, reduction="none").cpu().numpy()
 
 
+@torch.no_grad()
+def arm_batch(arms, tiles: list[np.ndarray], device) -> np.ndarray:
+    """Mean logit over the five deploy-arm seeds — the `g` feature of the LR cascade.
+
+    Batched in the parent on the GPU rather than in the tile workers: the tiles are
+    already crossing that boundary for the autoencoder, and five small forward passes
+    cost far less than shipping anything extra back."""
+    x = torch.from_numpy(np.stack(tiles)).to(device)
+    return np.mean([a(x).cpu().numpy() for a in arms], axis=0)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -109,6 +121,13 @@ def main() -> int:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(args.checkpoint, device)
+    arms = []
+    for i in range(5):
+        a = GlitchArm()
+        a.load_state_dict(torch.load(
+            REPO / f".reference/MADGRAV/lr_cascade/p1v42/arm_deploy_seed{i}.pt",
+            map_location="cpu"), strict=True)
+        arms.append(a.eval().to(device))
     spec = TileSpec()
     fs = spec.sample_rate
     psds = {i: load_reference_psd(PSD_DIR / f"reference_psd_{i}.npz") for i in ("H1", "L1")}
@@ -149,6 +168,7 @@ def main() -> int:
                 print(f"[{si+1}/{len(mine)}] {int(start)} already done", flush=True)
                 continue
             scores: dict[str, np.ndarray] = {}
+            arm_logit: dict[str, np.ndarray] = {}
             coeffs: dict[str, np.ndarray] = {}
             cents: dict[str, np.ndarray] = {}
             band_lo = band_n = None
@@ -158,7 +178,7 @@ def main() -> int:
                 starts = np.arange(0, arr.size - n_samp, step, dtype=np.int64)
                 offsets = starts
                 windows = ((arr[i:i + n_samp], ifo) for i in starts)
-                vals, buf, cf, ct = [], [], [], []
+                vals, garm, buf, cf, ct = [], [], [], [], []
                 # imap keeps the grid ordered; a permuted score series would make every
                 # time slide meaningless while looking perfectly healthy.
                 for out in pool.imap(_tile, windows, chunksize=8):
@@ -174,10 +194,13 @@ def main() -> int:
                         buf.append(tile); cf.append(coef); ct.append(cen)
                     if len(buf) >= args.batch:
                         vals.append(score_batch(model, buf, device))
+                        garm.append(arm_batch(arms, buf, device))
                         buf = []
                 if buf:
                     vals.append(score_batch(model, buf, device))
+                    garm.append(arm_batch(arms, buf, device))
                 scores[ifo] = np.concatenate(vals) if vals else np.array([])
+                arm_logit[ifo] = np.concatenate(garm) if garm else np.array([])
                 coeffs[ifo] = np.stack(cf).astype(np.complex64)
                 cents[ifo] = np.array(ct, dtype=np.float32)
             gps = start + offsets / fs + 0.5 * args.window_seconds
@@ -186,6 +209,8 @@ def main() -> int:
                      score_L1=scores["L1"].astype(np.float32),
                      coeff_H1=coeffs["H1"], coeff_L1=coeffs["L1"],
                      centroid_H1=cents["H1"], centroid_L1=cents["L1"],
+                     arm_H1=arm_logit["H1"].astype(np.float32),
+                     arm_L1=arm_logit["L1"].astype(np.float32),
                      band_lo=band_lo, band_n=band_n,
                      stride=args.stride, span=np.array([start, end]))
             total += len(gps)

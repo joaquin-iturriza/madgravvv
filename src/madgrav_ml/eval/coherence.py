@@ -123,6 +123,22 @@ def band_coefficients(x: np.ndarray, fs: int = 4096, band=COHERENCE_BAND_HZ,
     return spec[:, m].astype(np.complex64), lo, w.shape[1]
 
 
+def _lag_matrix(lo: int, n_band: int, n: int, lag_samples: int) -> np.ndarray:
+    """exp(2*pi*i*f*tau/n) for the in-band bins and the +-lag_samples window.
+
+    The full inverse transform produces 4096 lags to use 91 of them. Evaluating only the
+    lags that are wanted turns the lag scan into one small matrix product, which is what
+    makes it affordable to rank EVERY grid point rather than only the loud ones -- the
+    likelihood ratio needs coherence as an input, not as a veto applied afterwards.
+    """
+    f = np.arange(lo, lo + n_band)[:, None]
+    tau = np.arange(-lag_samples, lag_samples + 1)[None, :]
+    return np.exp(2j * np.pi * f * tau / n)
+
+
+_LAG_CACHE: dict = {}
+
+
 def coherence_from_coefficients(a: np.ndarray, b: np.ndarray, lo: int, n: int,
                                 lag_samples: int = LAG_SAMPLES) -> np.ndarray:
     """`coherence` computed from stored band coefficients, for arbitrary pairings.
@@ -130,21 +146,20 @@ def coherence_from_coefficients(a: np.ndarray, b: np.ndarray, lo: int, n: int,
     The cross-correlation at every lag at once is `irfft(A conj(B))`, and the energies
     come from Parseval, so a lag scan costs one transform instead of 91 dot products.
     """
-    a = np.atleast_2d(a)
-    b = np.atleast_2d(b)
-    full_a = np.zeros((a.shape[0], n // 2 + 1), dtype=np.complex128)
-    full_b = np.zeros_like(full_a)
-    full_a[:, lo:lo + a.shape[1]] = a
-    full_b[:, lo:lo + b.shape[1]] = b
+    a = np.atleast_2d(np.asarray(a))
+    b = np.atleast_2d(np.asarray(b))
 
     # Parseval for numpy's rfft on a real signal of even length: the DC and Nyquist bins
     # count once, every other bin twice. Both are outside a 20-500 Hz band, so the
     # doubling applies to all stored coefficients.
-    ea = 2.0 * (np.abs(full_a) ** 2).sum(1) / n
-    eb = 2.0 * (np.abs(full_b) ** 2).sum(1) / n
+    ea = 2.0 * (np.abs(a) ** 2).sum(1) / n
+    eb = 2.0 * (np.abs(b) ** 2).sum(1) / n
 
-    cross = np.fft.irfft(full_a * np.conj(full_b), n=n, axis=1)
-    lags = np.concatenate([np.arange(0, lag_samples + 1),
-                           np.arange(n - lag_samples, n)])
-    best = np.abs(2.0 * cross[:, lags]).max(axis=1)
+    key = (lo, a.shape[1], n, lag_samples)
+    if key not in _LAG_CACHE:
+        _LAG_CACHE[key] = _lag_matrix(*key)
+    # irfft of the cross-spectrum, evaluated only at the lags that matter. The 1/n and
+    # the doubling of the one-sided bins are the same conventions as `ea`/`eb` above.
+    cross = (a * np.conj(b)) @ _LAG_CACHE[key]
+    best = np.abs(2.0 * (2.0 * cross.real) / n).max(axis=1)
     return (best / (ea + eb + 1e-30)).astype(np.float32)

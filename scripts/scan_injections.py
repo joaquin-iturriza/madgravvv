@@ -164,6 +164,7 @@ def main() -> int:
     choice = rng.choice(len(spans), size=args.n_injections, p=live / live.sum())
     t0 = time.time()
     rows, sH, sL, coh, cen, hms, lms, t0s = [], [], [], [], [], [], [], []
+    gH, gL = [], []
     band_lo = band_n = None
 
     def load(cls, rel):
@@ -172,7 +173,9 @@ def main() -> int:
                                      map_location="cpu"), strict=True)
         return m.eval()
 
-    gate = {"arm": load(GlitchArm, "lr_cascade/p1v42/arm_deploy_seed0.pt"),
+    # Five seeds for the LR cascade's `g` feature; seed 0 also does the Grad-CAM.
+    arms = [load(GlitchArm, f"lr_cascade/p1v42/arm_deploy_seed{i}.pt") for i in range(5)]
+    gate = {"arm": arms[0],
             "hm": load(SpecialistCNN, "search_mode/hm_native_seed0.pt"),
             "lm": load(SpecialistCNN, "search_mode/lm_native_seed0.pt"),
             "device": torch.device("cpu")}
@@ -197,6 +200,10 @@ def main() -> int:
                 tiles, coeffs, cents, band_lo, band_n, hm, lm, cam_t0, params = out
                 sc = score(model, tiles, device)
                 sH.append(float(sc[0])); sL.append(float(sc[1]))
+                with torch.no_grad():
+                    x = torch.from_numpy(np.asarray(tiles)).float().to(device)
+                    g = np.mean([a(x).cpu().numpy() for a in arms], axis=0)
+                gH.append(float(g[0])); gL.append(float(g[1]))
                 coh.append(float(COH.coherence_from_coefficients(
                     coeffs[0:1], coeffs[1:2], band_lo, band_n)[0]))
                 cen.append(cents)
@@ -215,6 +222,8 @@ def main() -> int:
         score_L1=np.array(sL, dtype=np.float32),
         coherence=np.array(coh, dtype=np.float32),
         centroid_H1=cen[:, 0], centroid_L1=cen[:, 1],
+        arm_H1=np.array(gH, dtype=np.float32),
+        arm_L1=np.array(gL, dtype=np.float32),
         cnn_hm=np.array(hms, dtype=np.float32),
         cnn_lm=np.array(lms, dtype=np.float32),
         cam_t0=np.array(t0s, dtype=np.int16),

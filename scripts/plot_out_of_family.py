@@ -68,32 +68,30 @@ def main() -> int:
 
     z = np.load(REPO / "data_cache/injections/burst.npz")
     f0 = z["frequency"].astype(np.float64)
-    arm = z["arm_H1"].astype(np.float64)
-    gate = np.maximum(z["cnn_hm"], z["cnn_lm"]) >= 0.5
-    edges = [40, 60, 80, 110, 150, 200, 260, 330, 400]
-    centres, arms, keeps = [], [], []
-    for lo, hi in zip(edges[:-1], edges[1:]):
-        m = (f0 >= lo) & (f0 < hi)
-        if m.any():
-            centres.append(np.sqrt(lo * hi))
-            arms.append(arm[m].mean())
-            keeps.append(gate[m].mean())
+    hm, lm = z["cnn_hm"].astype(np.float64), z["cnn_lm"].astype(np.float64)
+    # The SAME bin edges as the table in results.tex. They were different once, and the
+    # figure then disagreed with the table it was supposed to make readable -- the gate
+    # peak landed in a different bin. One list, used by both.
+    EDGES = [40, 55, 70, 90, 115, 150, 200, 270, 400]
+    centres = [np.sqrt(a * b) for a, b in zip(EDGES[:-1], EDGES[1:])]
+    masks = [(f0 >= a) & (f0 < b) for a, b in zip(EDGES[:-1], EDGES[1:])]
 
-    axes[1].plot(centres, arms, marker="o", ms=4, color="C1", label="arm logit (burst)")
-    cbc = np.load(REPO / "data_cache/injections/foreground.npz")
-    axes[1].axhline(cbc["arm_H1"].mean(), color="C0", ls="--", lw=1,
-                    label="arm logit, compact binaries")
-    axes[1].axhline(-5.75, color="0.5", ls=":", lw=1, label="arm logit, background")
+    # HM and LM separately, because their bands differ and the difference is the point:
+    # HM reads 20-140 Hz and collapses at its own edge, which says nothing about
+    # morphology; LM reads 50-500 Hz and degrades across a range it fully covers, which
+    # does.
+    for series, colour, label in (
+            ([(hm[m] >= 0.5).mean() for m in masks], "C0", "HM specialist (20-140 Hz)"),
+            ([(lm[m] >= 0.5).mean() for m in masks], "C3", "LM specialist (50-500 Hz)")):
+        axes[1].plot(centres, series, marker="o", ms=4, color=colour, label=label)
+    axes[1].axvspan(140, 400, color="0.85", zorder=0)
+    axes[1].text(230, 0.93, "outside HM band", fontsize=7, ha="center", color="0.35")
     axes[1].set_xscale("log")
+    axes[1].set_ylim(0, 1)
     axes[1].set_xlabel(r"burst central frequency $f_0$ [Hz]")
-    axes[1].set_ylabel("glitch-arm ensemble logit")
-    twin = axes[1].twinx()
-    twin.plot(centres, keeps, marker="s", ms=4, color="C3", alpha=0.7)
-    twin.set_ylabel("CNN gate retention", color="C3")
-    twin.tick_params(axis="y", colors="C3")
-    twin.set_ylim(0, 1)
+    axes[1].set_ylabel(r"fraction with $P(\mathrm{signal}) \geq 0.5$")
     axes[1].legend(fontsize=7, loc="lower left")
-    axes[1].set_title("why: the supervised arms track the trained morphology",
+    axes[1].set_title("HM collapses at its band edge; LM degrades inside its own",
                       fontsize=9)
 
     fig.tight_layout()

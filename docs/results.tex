@@ -869,21 +869,45 @@ difference in efficiency is attributable to the waveform and to nothing else. Bo
 families are scored by the same likelihood ratio, the one fitted on the compact-binary
 population.
 
+A third family separates the two things the first comparison confounds. Precessing
+binaries --- IMRPhenomXPHM with isotropic spin directions, against the aligned-spin
+IMRPhenomPv2 the pipeline was tuned on --- are unmodelled in the same sense the bursts
+are, but they still chirp. Where they land says whether the penalty is about the specific
+waveform or about the morphology.
+
 \begin{center}
-\begin{tabular}{lrrr}
+\begin{tabular}{lrrrrr}
 \toprule
-FAR [1/yr] & Compact binaries & Sine-Gaussian bursts & Retained \\
+FAR [1/yr] & Aligned (tuned) & Precessing & Sine-Gaussian & Prec./tuned & Burst/tuned \\
 \midrule
-100 & $0.644$ \ [0.615--0.680] & $0.223$ \ [0.204--0.250] & $35\%$ \\
-30  & $0.543$ \ [0.501--0.590] & $0.155$ \ [0.136--0.180] & $29\%$ \\
-10  & $0.423$ \ [0.378--0.458] & $0.093$ \ [0.077--0.108] & $22\%$ \\
-3   & $0.301$ \ [0.263--0.328] & $0.040$ \ [0.028--0.048] & $13\%$ \\
-1   & $0.220$ \ [0.186--0.243] & $0.014$ \ [0.008--0.018] & $6\%$ \\
+100 & $0.644$ \ [0.615--0.680] & $0.619$ \ [0.587--0.660] & $0.223$ \ [0.204--0.250] & $0.96$ & $0.35$ \\
+30  & $0.543$ \ [0.501--0.590] & $0.512$ \ [0.465--0.563] & $0.155$ \ [0.136--0.180] & $0.94$ & $0.29$ \\
+10  & $0.423$ \ [0.378--0.458] & $0.388$ \ [0.342--0.424] & $0.093$ \ [0.077--0.108] & $0.92$ & $0.22$ \\
+3   & $0.301$ \ [0.263--0.328] & $0.268$ \ [0.233--0.291] & $0.040$ \ [0.028--0.048] & $0.89$ & $0.13$ \\
+1   & $0.220$ \ [0.186--0.243] & $0.192$ \ [0.160--0.212] & $0.014$ \ [0.008--0.018] & $0.87$ & $0.06$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Three seeds, ranges in brackets; the two families do not overlap at any rate.
+The precessing column is the informative one. It retains 87--96\% of the tuned
+efficiency, and its seed range overlaps the tuned family's at every rate --- at 100/yr,
+$0.587$--$0.660$ against $0.615$--$0.680$. A waveform the search was never shown, whose
+amplitude and phase modulation its templates do not model, is recovered essentially as
+well as the one it was built on. Whatever costs the bursts five sixths of their
+sensitivity is not waveform-model mismatch.
+
+What separates the two out-of-family columns is the chirp. Precession changes how a
+signal sweeps; it does not stop it sweeping. Sine-Gaussians do not sweep at all, and that
+is the property that costs them almost everything. \textbf{The pipeline generalises across
+sources that chirp and fails on sources that do not} --- it is a chirp detector rather
+than a template-matched detector, and also rather than a generic excess-power detector.
+
+That is a more useful characterisation than either column alone, and a more encouraging
+one: within the class of things that sweep upward in frequency, model-independence
+appears to hold. The reach claimed for anything outside that class does not survive
+contact with a measurement.
+
+Three seeds, ranges in brackets; the tuned and burst families do not overlap at any rate.
 Background, slide plan and fold split are identical to Section~\ref{sec:lr} and identical
 between the two columns: the same HPO\_BG spans, split span-disjointly, each family
 scored by the model fitted on the half that did not contain it, with the evaluation fold
@@ -1021,13 +1045,13 @@ converges.
 \begin{center}
 \begin{tabular}{lrrrrr}
 \toprule
-FAR [1/yr] & Found & $V$ Euclid & $V$ comoving & Seed range & Poisson \\
+FAR [1/yr] & Found & $n_\mathrm{bg}$ & $V$ comoving & From background & Across seeds \\
 \midrule
-100 & 374 & $16.33$ & $\mathbf{4.09}$ & $3.59$--$4.81$ & $\pm5\%$ \\
-30  & 226 & $9.89$  & $\mathbf{2.80}$ & $2.37$--$3.36$ & $\pm7\%$ \\
-10  & 128 & $5.61$  & $\mathbf{1.79}$ & $1.43$--$2.12$ & $\pm9\%$ \\
-3   &  67 & $2.94$  & $\mathbf{1.07}$ & $0.84$--$1.26$ & $\pm12\%$ \\
-1   &  39 & $1.72$  & $\mathbf{0.71}$ & $0.56$--$0.83$ & $\pm16\%$ \\
+100 & 374 & 287 & $\mathbf{4.09}$ & $4.04$--$4.11$ & $3.59$--$4.81$ \\
+30  & 226 &  86 & $\mathbf{2.79}$ & $2.67$--$2.86$ & $2.37$--$3.35$ \\
+10  & 126 &  28 & $\mathbf{1.77}$ & $1.61$--$1.90$ & $1.38$--$2.11$ \\
+3   &  63 &   8 & $\mathbf{1.02}$ & $0.86$--$1.14$ & $0.84$--$1.18$ \\
+1   &  37 &   2 & $\mathbf{0.68}$ & $0.56$--$0.71$ & $0.54$--$0.81$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1047,11 +1071,27 @@ at the far one. A sensitive volume computed Euclidean-style at these distances i
 approximately right, it is wrong by a factor that would flatter every comparison built on
 it. Only the comoving column should be quoted.
 
-The seed range exceeds the Poisson error at every rate --- $\pm15$--$19\%$ from training
-stochasticity against $\pm5$--$16\%$ from counting. This settles a practical question:
-enlarging the injection campaign would shrink only the smaller of the two errors. What
-limits a $VT$ measurement here is which model was trained, not how many sources were
-thrown at it, and any future $VT$ comparison needs seeds before it needs statistics.
+The error budget has three terms and the ordering is not obvious. Training
+stochasticity, read off the seed range, is the largest at every rate: $\pm15$--$20\%$.
+The recovered count contributes $\pm5\%$ at 100/yr rising to $\pm17\%$ at 1/yr. The
+background count enters twice and the two entries behave differently, which is worth
+separating carefully because it is easy to quote the wrong one.
+
+The threshold at each rate is the $n_\mathrm{bg}$-th loudest background trigger, and
+$n_\mathrm{bg}$ collapses from 287 at 100/yr to \emph{two} at 1/yr. Naively that is a
+$\pm70\%$ uncertainty, and an earlier version of this section quoted an interval that
+omitted it entirely. But propagating it properly --- moving the threshold to the
+$n_\mathrm{bg} \pm \sqrt{n_\mathrm{bg}}$ ranks and re-reading the volume there, the
+"from background" column above --- gives only $\pm11\%$ at 1/yr, because the efficiency
+varies slowly with threshold in that region. So the volume is better determined than the
+rate is.
+
+The right statement is therefore a split one. The \emph{volume} at a nominal rate is
+limited by training stochasticity, so more seeds help and a larger injection campaign
+mostly does not. The \emph{rate label} on that volume is limited by background livetime:
+quoting $0.68\,\mathrm{Gpc}^3$ "at 1/yr" attaches a well-determined volume to a poorly
+determined operating point, and only more distinct livetime fixes that. Neither term
+alone captures it, and the first version of this section reported the smaller one.
 
 \subsection*{What it is and is not a measurement of}
 

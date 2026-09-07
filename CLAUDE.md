@@ -359,12 +359,31 @@ central frequency (arm -0.85 at 40-80 Hz falling to -3.02 at 250-400 Hz; gate 0.
 the waveform-agnostic component (median 0.179 burst vs 0.169 CBC) and is why the burst
 column is not zero.
 
-Sine-Gaussians are a deliberately hard case, so this is closer to a LOWER bound. An
-unusual CBC (eccentric, highly precessing) would sit between the columns; establishing
-where needs a third family.
+**THE THIRD FAMILY SETTLES IT: THE SEARCH NEEDS A CHIRP, NOT A SPECIFIC CHIRP.**
+Precessing binaries (IMRPhenomXPHM, isotropic spins — unmodelled, but still chirping)
+retain **87-96%** and their seed range OVERLAPS the tuned family's at every rate
+(0.587-0.660 vs 0.615-0.680 at FAR 100/yr). Bursts retain 6-35%. So the out-of-family
+penalty is not waveform-model mismatch; it is the chirp morphology itself. The pipeline
+generalises across sources that sweep in frequency and fails on sources that do not — a
+chirp detector, not a template-matched detector and not a generic excess-power detector.
 
-**Still not done:** VT, a third injection family, and any change that is actually ours.
-The evaluation fold has never been touched and stays that way (C4).
+**VT (three seeds, 12k volumetric injections each to 5 Gpc, comoving + (1+z) corrected):
+4.09 Gpc^3 at FAR 100/yr falling to 0.68 at 1/yr**, per year of COINCIDENT livetime
+(~half a calendar year at this duty cycle). Euclidean is 4x larger — that correction is
+not optional at these distances.
+
+**The VT error budget has three terms and the ordering is not obvious.** Seed range is
+largest everywhere (±15-20%); recovered count ±5-17%; the background count enters twice
+and the two entries differ. The threshold is the n_bg-th loudest background trigger and
+n_bg falls 287 -> **2** from 100/yr to 1/yr, which is naively ±70% — but propagated into
+the volume (move the threshold ±sqrt(n_bg) ranks) it is only ±11%, because efficiency
+varies slowly with threshold there. **So: the VOLUME is limited by seeds, the RATE LABEL
+is limited by background livetime.** Quote both. An earlier draft quoted 1/sqrt(n_found)
+alone and got the conclusion wrong in both directions.
+
+**Still not done:** any change that is actually ours, and a single-detector VT (C1 makes
+it primary; it needs a per-detector ranking statistic, which is a search change). The
+evaluation fold has never been touched and stays that way (C4).
 
 **Facts established by reading and running the upstream release** (these change what to
 build, so they belong here rather than in results.tex):

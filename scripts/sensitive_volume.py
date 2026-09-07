@@ -37,6 +37,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
 from madgrav_ml.eval import likelihood as LR  # noqa: E402
+from madgrav_ml.eval.far import threshold_at_far  # noqa: E402
 
 YEAR = 365.25 * 86400.0
 TARGETS = (100.0, 30.0, 10.0, 3.0, 1.0)
@@ -97,7 +98,17 @@ def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> d
                 f"{far_path}_background.npz was produced with {wrote!r} but --model is "
                 f"{str(model_path)!r}: the threshold and the foreground would come from "
                 f"different statistics")
-        gated = bool(bg["gate_applied"]) if "gate_applied" in bg.files else False
+        # The LR background is never gated (far_lr.py applies the gate to the
+        # foreground only), so a background written under --gate cannot supply a
+        # matched threshold. Refuse rather than quote a cross-selection volume.
+        if bool(bg["foreground_gate_applied"]) if "foreground_gate_applied" in bg.files \
+                else bool(bg.get("gate_applied", False)):
+            raise SystemExit(
+                f"{far_path}_background.npz was written with --gate, which in far_lr.py "
+                f"masks the FOREGROUND only. Its thresholds come from ungated slides, so "
+                f"a VT computed against it would take its threshold from one selection "
+                f"and its efficiency from another. Re-run far_lr.py without --gate.")
+        gated = False
     else:
         raise SystemExit(f"{far_path}_background.npz predates model provenance; re-run "
                          f"far_lr.py so the background records its statistic")
@@ -151,14 +162,35 @@ def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> d
            "v_euclid_gpc3": v_euclid, "weight_range": [float(w.min()), float(w.max())],
            "by_far": {}}
     for target in TARGETS:
-        k = int(np.floor(target * t_yr / trials))
-        if k < 1 or k >= len(background):
-            continue
-        found = (ll > float(background[k])) & keep
+        try:
+            thr = threshold_at_far(background, t_yr * YEAR, far_target=target,
+                                   trials=trials)
+        except ValueError:
+            continue                       # below what this background can resolve
+        k = int((background >= thr).sum())  # background events at or above the threshold
+        found = (ll > thr) & keep
+
+        def volume(t):
+            m = (ll > t) & keep
+            return v_euclid * float(w[m].sum()) / n_attempted
+
+        # Two independent counting errors, and at low rates the SECOND dominates. The
+        # threshold is the k-th loudest background trigger, and k falls to single digits
+        # long before the recovered count does -- at 1/yr over 11.5 yr with a trials
+        # factor of 4 it is 2. Propagate it by moving the threshold to the k +- sqrt(k)
+        # ranks and re-reading the volume there, rather than by quoting 1/sqrt(n_found)
+        # and calling that the error.
+        lo_k = max(1, int(round(k - np.sqrt(k))))
+        hi_k = min(len(background), int(round(k + np.sqrt(k))))
+        v_hi, v_lo = volume(float(background[lo_k - 1])), volume(float(background[hi_k - 1]))
         out["by_far"][target] = {
             "n_found": int(found.sum()), "n_attempted": n_attempted,
+            "n_background_above_threshold": k,
             "sensitive_volume_gpc3_euclid": v_euclid * found.sum() / n_attempted,
-            "sensitive_volume_gpc3_comoving": v_euclid * float(w[found].sum()) / n_attempted,
+            "sensitive_volume_gpc3_comoving": volume(thr),
+            "v_comoving_from_background_count": [min(v_lo, v_hi), max(v_lo, v_hi)],
+            "rel_error_found": 1.0 / np.sqrt(max(int(found.sum()), 1)),
+            "rel_error_background": 1.0 / np.sqrt(max(k, 1)),
         }
     print(f"{inj_path.name}: {n_attempted} attempted to {d_max:.0f} Mpc "
           f"(z<={zs.max():.2f}), comoving weight {w.min():.3f}-{w.max():.3f}"
@@ -192,8 +224,8 @@ def main() -> int:
                                               args.model):
         per_seed.append(one_seed(inj_path, far_path, model_path, trials.value))
 
-    print(f"\n{'FAR [1/yr]':>11}{'found':>8}{'of':>8}{'V_euclid':>11}"
-          f"{'V_comoving':>12}{'68% interval':>20}")
+    print(f"\n{'FAR [1/yr]':>11}{'found':>8}{'n_bg':>7}{'V_comoving':>12}"
+          f"{'from found':>14}{'from background':>18}{'across seeds':>16}")
     rows = []
     for target in TARGETS:
         vals = [r["by_far"][target] for r in per_seed if target in r["by_far"]]
@@ -204,22 +236,31 @@ def main() -> int:
         ve = np.array([v["sensitive_volume_gpc3_euclid"] for v in vals])
         found = int(np.mean([v["n_found"] for v in vals]))
         n = int(np.mean([v["n_attempted"] for v in vals]))
-        # Poisson on the recovered count, which is what actually limits this: the
-        # weighted estimator is unbiased but its variance is set by how few injections
-        # land close enough to be found at all.
-        rel = 1.0 / np.sqrt(max(found, 1))
+        k = int(np.mean([v["n_background_above_threshold"] for v in vals]))
+        rel_f = float(np.mean([v["rel_error_found"] for v in vals]))
+        rel_b = float(np.mean([v["rel_error_background"] for v in vals]))
+        bg_lo = float(np.mean([v["v_comoving_from_background_count"][0] for v in vals]))
+        bg_hi = float(np.mean([v["v_comoving_from_background_count"][1] for v in vals]))
         rows.append({"far_per_yr": target, "n_found_mean": found, "n_attempted": n,
+                     "n_background_above_threshold": k,
                      "V_comoving_gpc3_mean": float(vc.mean()),
-                     "V_comoving_gpc3_range": [float(vc.min()), float(vc.max())],
+                     "V_comoving_gpc3_seed_range": [float(vc.min()), float(vc.max())],
+                     "V_comoving_gpc3_from_background_count": [bg_lo, bg_hi],
                      "V_euclid_gpc3_mean": float(ve.mean()),
-                     "poisson_relative_error": float(rel)})
-        print(f"{target:>11.0f}{found:>8}{n:>8}{ve.mean():>11.3f}{vc.mean():>12.3f}"
-              f"   {vc.mean()*(1-rel):>7.3f}-{vc.mean()*(1+rel):<7.3f}")
-        if found < 20:
-            print(f"{'':>11}   only {found} recovered: this row is a Poisson estimate "
-                  f"at +-{100*rel:.0f}%, not a measurement")
+                     "rel_error_found": rel_f, "rel_error_background": rel_b})
+        print(f"{target:>11.0f}{found:>8}{k:>7}{vc.mean():>12.3f}"
+              f"{'+-' + format(100*rel_f, '.0f') + '%':>14}"
+              f"{format(bg_lo, '.2f') + '-' + format(bg_hi, '.2f'):>18}"
+              f"{format(vc.min(), '.2f') + '-' + format(vc.max(), '.2f'):>16}")
+        if rel_b > rel_f:
+            print(f"{'':>11}   threshold rests on {k} background event"
+                  f"{'s' if k != 1 else ''}: the background count dominates the error "
+                  f"here, not the recovered count")
 
-    print("\nVT for a one-year observation is the comoving column in Gpc^3 yr. The "
+    print("\nVT is quoted per year of COINCIDENT livetime, not calendar time: the "
+          "injections are placed in coincident HPO_BG. At a ~50-60% duty cycle the "
+          "calendar figure is roughly half, and that duty cycle is the premise of C1.")
+    print("The comoving column is the number to quote. The "
           "masses are DETECTOR-FRAME: the campaign draws the same component range at "
           "every distance, so `expected detections = rate x VT` holds against a "
           "detector-frame rate, not a source-frame one.")

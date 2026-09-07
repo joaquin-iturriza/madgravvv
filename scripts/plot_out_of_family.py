@@ -28,8 +28,12 @@ sys.path.insert(0, str(REPO / "src"))
 
 from madgrav_ml.plotting.style import save_figure, use_style  # noqa: E402
 
+from madgrav_ml.eval.far import TrialsFactor  # noqa: E402
+
 SEEDS = ("s42", "s43", "s44")
-TRIALS = 4
+# Itemised, not a literal: Phase 7.1 is about reducing the arm count, and a hardcoded 4
+# would keep drawing the old false-alarm rates after that lands.
+TRIALS = TrialsFactor(2, 2).value
 YEAR = 365.25 * 86400.0
 
 

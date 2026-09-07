@@ -14,10 +14,12 @@ dependencies = [
   "hydra-core>=1.3",
   "omegaconf>=2.3",
   "pyyaml>=6.0",
-  "astropy",
 ]
 
 [project.optional-dependencies]
+# Only scripts/sensitive_volume.py needs it, and that is not in PUBLIC_PATHS -- the
+# published package would otherwise carry a cosmology dependency it never imports.
+analysis = ["astropy>=6.0"]
 # Deliberately NOT a dependency: ml4gw. See CLAUDE.md constraint C5 — its whitening
 # changes the coherence statistic and therefore the upstream results.
 deep = [

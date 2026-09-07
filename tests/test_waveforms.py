@@ -390,21 +390,32 @@ def test_build_backend_dispatches_and_refuses_unknown():
         build_backend("chirplet")
 
 
-def test_aligned_spin_draw_is_unchanged_by_the_precessing_option():
-    """The aligned path must consume the RNG exactly as before the option existed.
+def test_aligned_spin_draw_matches_frozen_reference_values():
+    """FROZEN values, not two same-seeded draws compared to each other.
 
-    `_spins` draws the same two uniforms first, and the volumetric `distance_mpc`
-    expression short-circuits without touching the stream when no horizon is set, so an
-    aligned non-volumetric draw is bit-identical to the old one. If that ever stops being
-    true, every previously-generated bank silently stops being reproducible from its seed.
+    The earlier version of this test drew twice under the current code and asserted they
+    agreed, which is true whether or not the stream ever changed -- it could not detect
+    the regression it was named for. These numbers were taken from the code as it stood
+    when the precessing and volumetric options were added, and confirmed by reading that
+    `**self._spins(r)` is evaluated in argument position before `distance_mpc` and that
+    the volumetric conditional short-circuits without touching the stream. If they move,
+    every previously generated bank has stopped being reproducible from its seed.
     """
     from madgrav_ml.data.injections import ParameterSampler
 
-    a = ParameterSampler(seed=7).draw()
-    b = ParameterSampler(seed=7).draw()
-    assert a.as_dict() == b.as_dict()
-    assert (a.spin1x, a.spin1y, a.spin2x, a.spin2y) == (0.0, 0.0, 0.0, 0.0)
-    assert a.distance_mpc is None and a.network_snr is not None
+    got = ParameterSampler(seed=7).draw()
+    expected = {
+        "mass1": 108.693518106653, "mass2": 78.760501326513,
+        "spin1z": 0.545857666685, "spin2z": -0.544089763819,
+        "network_snr": 13.102826843491, "ra": 5.48869817315,
+        "dec": -1.425543832862, "psi": 2.57996516611,
+        "inclination": 0.934601692008, "phase": 2.940122020423,
+        "time_shift": -0.196967573181,
+    }
+    for key, want in expected.items():
+        assert getattr(got, key) == pytest.approx(want, rel=1e-11), key
+    assert (got.spin1x, got.spin1y, got.spin2x, got.spin2y) == (0.0, 0.0, 0.0, 0.0)
+    assert got.distance_mpc is None
 
 
 def test_precessing_spins_are_isotropic_not_uniform_in_components():

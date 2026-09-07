@@ -78,7 +78,7 @@ def _pair(args):
     came from, and both detectors must carry the same source with its true relative
     amplitude and arrival delay — that relationship is the entire content of both vetoes.
     """
-    raw_h1, raw_l1, gps, params, achieved = args
+    raw_h1, raw_l1, gps, params, want_snr = args
     try:
         tiles, mags, coeffs, cents = [], [], [], []
         lo = n = None
@@ -101,10 +101,14 @@ def _pair(args):
         with torch.no_grad():
             x = torch.from_numpy(np.stack(tiles)).float()
             arm = np.mean([a(x).numpy() for a in g["arms"]], axis=0)
-        # `achieved` rides along with the work item rather than being accumulated in
-        # parallel by the parent: a dropped injection removes its row, and a separately
-        # accumulated list would then attach every later SNR to the wrong source with
-        # matching lengths and no symptom.
+        # Computed HERE, not in the parent. It returns with its own row, so a dropped
+        # injection takes its SNR with it -- a separately accumulated list would attach
+        # every later SNR to the wrong source, with matching lengths and no symptom. It
+        # also belongs in the worker on cost grounds: the parent version ran serially
+        # while sixteen workers idled and regenerated a waveform this function already
+        # has.
+        achieved = (_CTX["engine"].achieved_network_snr(params, gps)
+                    if want_snr else None)
         return (np.stack(tiles), np.stack(coeffs), np.array(cents),
                 lo, n, hm, lm, t0, arm, achieved, params)
     except Exception:
@@ -225,11 +229,8 @@ def main() -> int:
             work = []
             for i in starts:
                 gps = start + int(i) / fs + 0.5 * args.window_seconds
-                params = sampler.draw(rng)
                 work.append((arrs["H1"][i:i + n_samp], arrs["L1"][i:i + n_samp],
-                             gps, params,
-                             engine.achieved_network_snr(params, gps)
-                             if args.distance_max else None))
+                             gps, sampler.draw(rng), args.distance_max is not None))
             attempted += len(work)
             for out in pool.imap(_pair, work, chunksize=4):
                 if out is None:

@@ -266,7 +266,11 @@ def main() -> int:
                         loglr=background.astype(np.float32),
                         background_livetime_s=T,
                         model_path=str(args.model) if args.model else "shipped",
-                        gate_applied=bool(args.gate))
+                        # FOREGROUND-only. The LR background loop never sees cnn_hm/lm
+                        # -- the gate is applied to injections and not to slides -- so
+                        # this must not be read as "the background was gated". Named to
+                        # make that impossible to misread downstream.
+                        foreground_gate_applied=bool(args.gate))
     np.savez_compressed(f"{args.out}_foreground.npz", loglr=ll.astype(np.float32),
                         keep=keep, network_snr=snr.astype(np.float32))
     print(f"\nwrote {args.out}.json / _background.npz / _foreground.npz")

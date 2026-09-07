@@ -162,12 +162,19 @@ class LALWaveformBackend:
     ) -> GeneratedWaveform:
         lal, lalsim = self._lalsim()
         approx = lalsim.GetApproximantFromString(self.approximant_name)
+        # A volumetric draw carries its own distance and is NOT rescaled afterwards, so
+        # the distance here is the physical amplitude rather than an arbitrary reference.
+        distance = getattr(params, "distance_mpc", None) or self.distance_mpc
         hp, hc = lalsim.SimInspiralTD(
             params.mass1 * lal.MSUN_SI,
             params.mass2 * lal.MSUN_SI,
-            0.0, 0.0, float(params.spin1z),
-            0.0, 0.0, float(params.spin2z),
-            self.distance_mpc * 1.0e6 * lal.PC_SI,
+            float(getattr(params, "spin1x", 0.0)),
+            float(getattr(params, "spin1y", 0.0)),
+            float(params.spin1z),
+            float(getattr(params, "spin2x", 0.0)),
+            float(getattr(params, "spin2y", 0.0)),
+            float(params.spin2z),
+            distance * 1.0e6 * lal.PC_SI,
             float(params.inclination),
             float(params.phase),
             0.0,   # longAscNodes
@@ -375,6 +382,10 @@ class InjectionEngine:
         using the *same* source: that is what makes a tile drawn at rho = 8 mean the
         same thing as a network trigger at rho = 8.
         """
+        if getattr(params, "network_snr", None) is None:
+            # Volumetric mode: the drawn distance already sets the amplitude. Rescaling
+            # would destroy exactly the distance dependence a sensitive volume measures.
+            return 1.0
         if self.snr_convention == "detector":
             rho2 = optimal_snr(self.project(wave, ifo, params, gps),
                                self.sample_rate, self.psds[ifo], self.f_low) ** 2
@@ -404,6 +415,19 @@ class InjectionEngine:
         # where "SNR" is defined -- and applied after.
         return self.scale_factor(wave, ifo, params, gps) * self.whiten_like_noise(h, ifo)
 
+    def achieved_network_snr(self, params: InjectionParameters,
+                             gps: float | None = None) -> float:
+        """Network SNR the source actually has, summed over the reference PSDs.
+
+        In volumetric mode nothing is rescaled, so this is an OUTPUT rather than an
+        input, and it is the quantity an efficiency-versus-distance curve is read
+        against."""
+        gps = self.reference_gps if gps is None else float(gps)
+        wave = self.backend.generate_window(params, self.sample_rate, self.window_seconds)
+        return float(np.sqrt(sum(
+            optimal_snr(self.project(wave, ifo, params, gps), self.sample_rate,
+                        self.psds[ifo], self.f_low) ** 2 for ifo in self.psds)))
+
     def inject(self, strain: np.ndarray, params: InjectionParameters, ifo: str,
                gps: float | None = None) -> np.ndarray:
         """Add a drawn source to an already-whitened noise window."""
@@ -419,9 +443,14 @@ class InjectionEngine:
 
 
 def build_backend(name: str, cfg=None):
-    """`cbc` (the tuned family) or `burst` (the out-of-family probe)."""
+    """`cbc` (tuned), `precessing` (unmodelled but still chirping), `burst` (no chirp)."""
     if name == "burst":
         return SineGaussianBackend()
+    if name == "precessing":
+        # IMRPhenomXPHM carries the precession-induced amplitude and phase modulation
+        # that IMRPhenomPv2 with aligned spins does not. Still a chirp, so this sits
+        # between the tuned family and the bursts rather than outside both.
+        return LALWaveformBackend(approximant="IMRPhenomXPHM")
     if name in ("cbc", "lal"):
         get = (lambda k, d: cfg.get(k, d)) if cfg is not None else (lambda k, d: d)
         return LALWaveformBackend(

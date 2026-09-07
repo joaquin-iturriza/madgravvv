@@ -122,11 +122,16 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--window-seconds", type=float, default=4.0)
     ap.add_argument("--seed", type=int, default=2024)
-    ap.add_argument("--family", choices=("cbc", "burst"), default="cbc",
-                    help="'cbc' is the IMRPhenomPv2 population everything was tuned on; "
-                         "'burst' is sine-Gaussian, which has no chirp track at all and "
-                         "is the out-of-family probe an anomaly search has to be "
-                         "measured against")
+    ap.add_argument("--family", choices=("cbc", "precessing", "burst"), default="cbc",
+                    help="'cbc' is the IMRPhenomPv2 aligned-spin population everything "
+                         "was tuned on; 'precessing' is IMRPhenomXPHM with isotropic "
+                         "spins, unmodelled but still chirping; 'burst' is "
+                         "sine-Gaussian, with no chirp track at all")
+    ap.add_argument("--distance-max", type=float, default=None,
+                    help="draw distance uniform in volume out to this many Mpc instead "
+                         "of targeting an SNR. Required for a sensitive-volume "
+                         "measurement: VT needs efficiency against DISTANCE, and an "
+                         "SNR-targeted campaign cannot supply it.")
     ap.add_argument("--snr-range", type=float, nargs=2, default=(6.0, 40.0),
                     help="wider than the training band (8, 25) on purpose: an "
                          "efficiency curve needs points where it is near 0 and near 1")
@@ -163,12 +168,18 @@ def main() -> int:
         return 1
     live = np.array([e - s for (s, e), _ in spans], dtype=float)
     print(f"{len(spans)} coincident spans, {live.sum()/86400:.2f} d; "
-          f"{args.n_injections} {args.family} injections, network SNR "
-          f"{args.snr_range[0]}-{args.snr_range[1]}", flush=True)
+          f"{args.n_injections} {args.family} injections, "
+          + (f"distance uniform in volume to {args.distance_max:.0f} Mpc"
+             if args.distance_max else
+             f"network SNR {args.snr_range[0]}-{args.snr_range[1]}"), flush=True)
 
     rng = np.random.default_rng(args.seed)
-    sampler = (BurstSampler(snr_range=tuple(args.snr_range)) if args.family == "burst"
-               else ParameterSampler(snr_range=tuple(args.snr_range)))
+    if args.family == "burst":
+        sampler = BurstSampler(snr_range=tuple(args.snr_range))
+    else:
+        sampler = ParameterSampler(snr_range=tuple(args.snr_range),
+                                   precessing=args.family == "precessing",
+                                   distance_max_mpc=args.distance_max)
     reader = SegmentReader(REPO / "data_cache/strain", capacity=2)
     n_samp = int(args.window_seconds * fs)
 
@@ -176,7 +187,7 @@ def main() -> int:
     choice = rng.choice(len(spans), size=args.n_injections, p=live / live.sum())
     t0 = time.time()
     rows, sH, sL, coh, cen, hms, lms, t0s = [], [], [], [], [], [], [], []
-    gH, gL, span_ix, span_t0 = [], [], [], []
+    gH, gL, span_ix, span_t0, achieved = [], [], [], [], []
     band_lo = band_n = None
 
     def load(cls, rel):
@@ -206,6 +217,9 @@ def main() -> int:
                 gps = start + int(i) / fs + 0.5 * args.window_seconds
                 work.append((arrs["H1"][i:i + n_samp], arrs["L1"][i:i + n_samp],
                              gps, sampler.draw(rng)))
+            if args.distance_max:
+                for w in work:
+                    achieved.append(engine.achieved_network_snr(w[3], w[2]))
             for out in pool.imap(_pair, work, chunksize=4):
                 if out is None:
                     continue
@@ -231,7 +245,12 @@ def main() -> int:
             print(f"[{si+1}/{len(spans)}] {int(start)}  {len(rows)} injections  "
                   f"[{el/60:.1f} min]", flush=True)
 
-    keys = sorted(rows[0]) if rows else []   # family-dependent parameter columns
+    keys = [k for k in (sorted(rows[0]) if rows else []) if rows[0][k] is not None]
+    extra = {}
+    if achieved:
+        # In volumetric mode `network_snr` is None on the way in; the achieved value is
+        # what the efficiency curve is read against.
+        extra["achieved_network_snr"] = np.array(achieved[:len(rows)], dtype=np.float32)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     cen = np.asarray(cen, dtype=np.float32)
     np.savez_compressed(
@@ -247,6 +266,7 @@ def main() -> int:
         cnn_hm=np.array(hms, dtype=np.float32),
         cnn_lm=np.array(lms, dtype=np.float32),
         cam_t0=np.array(t0s, dtype=np.int16),
+        **extra,
         **{k: np.array([r[k] for r in rows], dtype=np.float32) for k in keys},
     )
     print(f"\ndone: {len(rows)} injections, {(time.time()-t0)/60:.1f} min -> {args.out}")

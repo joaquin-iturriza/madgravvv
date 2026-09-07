@@ -36,19 +36,31 @@ COALESCENCE_SHIFT_RANGE = (-0.5, 0.5)    # seconds within the tile
 
 @dataclass
 class InjectionParameters:
-    """One drawn source. Carried into the run record so a campaign is reconstructible."""
+    """One drawn source. Carried into the run record so a campaign is reconstructible.
+
+    The in-plane spin components default to zero, which is the aligned-spin case the
+    baseline population uses; a precessing draw fills them in. `distance_mpc` is None for
+    an SNR-targeted draw (the amplitude is rescaled afterwards) and set for a volumetric
+    one, where the distance IS the amplitude and no rescaling happens -- that distinction
+    is what makes a sensitive-volume measurement possible.
+    """
 
     mass1: float
     mass2: float
     spin1z: float
     spin2z: float
-    network_snr: float
+    network_snr: float | None
     ra: float
     dec: float
     psi: float
     inclination: float
     phase: float
     time_shift: float
+    spin1x: float = 0.0
+    spin1y: float = 0.0
+    spin2x: float = 0.0
+    spin2y: float = 0.0
+    distance_mpc: float | None = None
 
     @property
     def total_mass(self) -> float:
@@ -161,8 +173,20 @@ class ParameterSampler:
         snr_range: tuple[float, float] = NETWORK_SNR_RANGE,
         spin_max: float = 0.99,
         time_shift_range: tuple[float, float] = COALESCENCE_SHIFT_RANGE,
+        precessing: bool = False,
+        distance_max_mpc: float | None = None,
     ):
         self.rng = np.random.default_rng(seed)
+        # Isotropic spin directions rather than aligned ones. A precessing binary still
+        # chirps, so unlike the burst probe it stays inside the broad class the search
+        # targets -- it is the "unusual compact binary" case, which is where a realistic
+        # unmodelled source sits.
+        self.precessing = precessing
+        # When set, distance is drawn uniform in Euclidean volume and the waveform keeps
+        # its physical amplitude instead of being rescaled to a target SNR. That is what
+        # a sensitive volume needs: efficiency as a function of DISTANCE, integrated
+        # against the volume element, rather than efficiency at a chosen SNR.
+        self.distance_max_mpc = distance_max_mpc
         self.component_range = component_range
         self.total_range = total_range
         self.q_max = q_max
@@ -187,6 +211,23 @@ class ParameterSampler:
             "mutually unsatisfiable"
         )
 
+    def _spins(self, r) -> dict:
+        """Aligned by default; isotropic in direction when `precessing`."""
+        if not self.precessing:
+            return {"spin1z": float(r.uniform(-self.spin_max, self.spin_max)),
+                    "spin2z": float(r.uniform(-self.spin_max, self.spin_max))}
+        out = {}
+        for i in (1, 2):
+            # magnitude uniform in [0, spin_max], direction isotropic on the sphere
+            a = float(r.uniform(0.0, self.spin_max))
+            cos_t = float(r.uniform(-1.0, 1.0))
+            phi = float(r.uniform(0.0, 2.0 * np.pi))
+            sin_t = float(np.sqrt(max(0.0, 1.0 - cos_t ** 2)))
+            out[f"spin{i}x"] = a * sin_t * np.cos(phi)
+            out[f"spin{i}y"] = a * sin_t * np.sin(phi)
+            out[f"spin{i}z"] = a * cos_t
+        return out
+
     def draw(self, rng=None) -> InjectionParameters:
         """Draw one source. Pass `rng` to use a caller-owned stream.
 
@@ -198,12 +239,16 @@ class ParameterSampler:
         """
         m1, m2 = self._masses(rng)
         r = self.rng if rng is None else rng
+        volumetric = self.distance_max_mpc is not None
         return InjectionParameters(
             mass1=m1,
             mass2=m2,
-            spin1z=float(r.uniform(-self.spin_max, self.spin_max)),
-            spin2z=float(r.uniform(-self.spin_max, self.spin_max)),
-            network_snr=float(r.uniform(*self.snr_range)),
+            **self._spins(r),
+            # p(d) ~ d^2 out to d_max, i.e. uniform in Euclidean volume. The cube root of
+            # a uniform draw is the inverse CDF.
+            distance_mpc=(float(self.distance_max_mpc * r.random() ** (1.0 / 3.0))
+                          if volumetric else None),
+            network_snr=None if volumetric else float(r.uniform(*self.snr_range)),
             ra=float(r.uniform(0.0, 2.0 * np.pi)),
             # isotropic on the sphere, not uniform in declination
             dec=float(np.arcsin(r.uniform(-1.0, 1.0))),

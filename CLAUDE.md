@@ -337,10 +337,34 @@ entered the cut chain ONLY as a Grad-CAM crop position — its value was never r
 This is NOT a better front end. The autoencoder is unchanged. The gain is in the readout,
 which is where Phase 4 says to look.
 
-**Still not done:** VT, an injection family different from the one the LR was fitted on
-(the efficiency above is optimistic for sources outside it — the point of an anomaly
-search), and any change that is actually ours. The evaluation fold has never been touched
-and stays that way (C4).
+**OUT OF FAMILY: THE HEADLINE IS A CBC EFFICIENCY, NOT AN ANOMALY EFFICIENCY.**
+Sine-Gaussian bursts (no chirp track at all), same sky/time/SNR machinery, scored by the
+same LR fitted on CBCs. Three seeds, ranges non-overlapping:
+
+| FAR [1/yr] | CBC | burst | retained |
+|---|---|---|---|
+| 100 | 0.644 | 0.223 | 35% |
+| 10 | 0.423 | 0.093 | 22% |
+| 1 | 0.220 | 0.014 | **6%** |
+
+**Retention falls monotonically as the threshold tightens** — that shape is the finding.
+A waveform-agnostic search would lose a roughly constant fraction; one whose deep tail is
+held down by a family-specific feature loses more and more. The second is what happens.
+
+**The glitch arm is the family-specific feature.** Arm logit +2.87 on CBC, -1.88 on
+burst, -5.75 on background, and it carries the two largest LR coefficients after
+coherence. CNN gate keeps 88.9% of CBC vs 52.3% of bursts. Both sharpen with burst
+central frequency (arm -0.85 at 40-80 Hz falling to -3.02 at 250-400 Hz; gate 0.743 ->
+0.280) — a low-frequency burst resembles a heavy merger and scores like one. Coherence is
+the waveform-agnostic component (median 0.179 burst vs 0.169 CBC) and is why the burst
+column is not zero.
+
+Sine-Gaussians are a deliberately hard case, so this is closer to a LOWER bound. An
+unusual CBC (eccentric, highly precessing) would sit between the columns; establishing
+where needs a third family.
+
+**Still not done:** VT, a third injection family, and any change that is actually ours.
+The evaluation fold has never been touched and stays that way (C4).
 
 **Facts established by reading and running the upstream release** (these change what to
 build, so they belong here rather than in results.tex):

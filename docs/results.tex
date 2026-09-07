@@ -849,6 +849,114 @@ $0.602$ at 1/yr. As Section~\ref{sec:headtohead} argued, that comparison is not
 interpretable --- different training sets, ours much smaller --- and it is recorded only
 so the number is not mistaken for a target later.
 
+\section{Out of family: what the search is actually sensitive to}
+\label{sec:outoffamily}
+
+Every number in this note so far was measured against the same IMRPhenomPv2 population
+that the stage-2 margin and the likelihood ratio were fitted to. For a template search
+that is the right measurement. For an anomaly search it is the one that cannot be
+trusted on its own, because a pipeline that has quietly learned its tuning family scores
+identically on that family and fails on everything else. The claim being tested is
+model-independence, and model-independence is not visible in an in-family number.
+
+The probe is a sine-Gaussian burst: constant frequency, Gaussian envelope,
+$\tau = Q/(\sqrt{2}\pi f_0)$, with $f_0$ log-uniform over 40--400 Hz and $Q$ uniform over
+3--30. There is no chirp track, so the rising sweep a coalescence draws across a
+time-frequency tile is absent by construction. Everything else is shared verbatim: the
+same sky and polarisation distributions, the same coalescence-time offsets, the same
+projection onto both detectors, the same network-SNR rescaling, the same engine. A
+difference in efficiency is attributable to the waveform and to nothing else. Both
+families are scored by the same likelihood ratio, the one fitted on the compact-binary
+population.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+FAR [1/yr] & Compact binaries & Sine-Gaussian bursts & Retained \\
+\midrule
+100 & $0.644$ \ [0.615--0.680] & $0.223$ \ [0.204--0.250] & $35\%$ \\
+30  & $0.543$ \ [0.501--0.590] & $0.155$ \ [0.136--0.180] & $29\%$ \\
+10  & $0.423$ \ [0.378--0.458] & $0.093$ \ [0.077--0.108] & $22\%$ \\
+3   & $0.301$ \ [0.263--0.328] & $0.040$ \ [0.028--0.048] & $13\%$ \\
+1   & $0.220$ \ [0.186--0.243] & $0.014$ \ [0.008--0.018] & $6\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three seeds, ranges in brackets; the two families do not overlap at any rate. The
+compact-binary column is unchanged from Section~\ref{sec:lr} to within a thousandth,
+which confirms the per-fold standardisation correction had the negligible numerical
+effect its size predicted.
+
+\subsection*{Reading it}
+
+The pipeline retains real sensitivity to a waveform it was never shown --- a third of it
+at a false-alarm rate of 100/yr --- so it is not merely a compact-binary search. But the
+retention is not a constant: it falls monotonically as the threshold tightens, from
+$35\%$ to $6\%$. At the operating point a search is actually run at, five sixths of the
+out-of-family sensitivity is gone.
+
+That shape is the informative part. A search whose discrimination were genuinely
+waveform-agnostic would lose a roughly constant fraction; one whose deep tail is held
+down by a family-specific feature loses more and more of it as the tail is pushed
+further out. The second is what is measured.
+
+\subsection*{Which feature does it}
+
+The glitch arm. Its 5-seed ensemble logit averages $+2.87$ on compact binaries and
+$-1.88$ on bursts, against $-5.75$ on background --- so a burst sits about a third of the
+way from noise to signal in the arm's opinion, and the arm carries the two largest
+likelihood-ratio coefficients after coherence. The CNN gate agrees: it keeps $88.9\%$ of
+compact binaries and $52.3\%$ of bursts.
+
+Both effects sharpen with the burst's central frequency, which is the mechanism stated
+plainly:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+$f_0$ [Hz] & $n$ & Arm logit & CNN gate keeps \\
+\midrule
+40--80    & 2451 & $-0.85$ & $0.743$ \\
+80--150   & 2183 & $-1.71$ & $0.572$ \\
+150--250  & 1789 & $-2.49$ & $0.379$ \\
+250--400  & 1577 & $-3.02$ & $0.280$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A low-frequency burst is the thing in this population that most resembles the merger of
+a heavy binary --- brief, loud, low in the band --- and the supervised components treat
+it accordingly. As $f_0$ rises the resemblance disappears and so does the score. The
+arms have learned the morphology of the family they were trained on, which is what they
+were asked to do, and it is also precisely what limits the search's reach beyond it.
+
+Coherence, by contrast, is waveform-agnostic and behaves that way: median $0.179$ on
+bursts against $0.169$ on compact binaries. It is the component carrying whatever
+model-independent sensitivity the pipeline has, and it is the reason the burst column is
+not zero.
+
+\subsection*{What this does and does not license}
+
+It does not say the pipeline is broken, and it does not contradict
+Section~\ref{sec:lr}: ranking on the likelihood ratio still beats the chain of cuts by a
+wide margin on both families. What it says is that the headline efficiency is a
+compact-binary efficiency, and that quoting it as an anomaly-detection efficiency would
+overstate the reach for unmodelled sources by between a factor of three and a factor of
+sixteen depending on the false-alarm rate.
+
+Sine-Gaussians are a deliberately hard case --- no chirp at all --- so this is closer to
+a lower bound on out-of-family performance than to a typical one. A source that is
+merely an unusual compact binary would sit between the two columns. Establishing where
+would need a third family, and the natural candidates are eccentric or highly precessing
+systems, which are unmodelled in the search's templates but still chirp.
+
+The direction this points is the same one Section~\ref{sec:lr} pointed: the leverage is
+in the readout rather than the front end. A likelihood ratio whose supervised features
+are all trained on one waveform family will track that family, and the components that
+do not --- coherence above all --- are the ones worth strengthening if
+model-independence is the goal.
+
 \section{Results}
 
 No experiment has yet been run. This section will hold, per change: the hypothesis and

@@ -171,7 +171,7 @@ def main() -> int:
             arm_logit: dict[str, np.ndarray] = {}
             coeffs: dict[str, np.ndarray] = {}
             cents: dict[str, np.ndarray] = {}
-            band_lo = band_n = None
+            band_lo = band_n = n_band = None
             offsets = None
             for ifo in ("H1", "L1"):
                 arr = reader.segment(pair[ifo])
@@ -186,8 +186,18 @@ def main() -> int:
                     # coefficients hold its place. Closing the gap instead would
                     # misalign every time slide past that point.
                     if out is None:
+                        # The placeholder must be the RIGHT shape even when the very
+                        # first window of a segment is the one that failed: deriving it
+                        # from cf[0] leaves a length-1 array and np.stack later raises
+                        # on the ragged result, killing the shard partway through.
+                        if band_n is None:
+                            _, band_lo, band_n = COH.band_coefficients(
+                                np.zeros(int(args.window_seconds * fs)), fs)
+                            n_band = int(np.ceil(
+                                (COH.COHERENCE_BAND_HZ[1] - COH.COHERENCE_BAND_HZ[0])
+                                * args.window_seconds / 4.0)) + 1
                         buf.append(np.zeros((1,) + spec.size, np.float32))
-                        cf.append(np.zeros(cf[0].shape if cf else 1, np.complex64))
+                        cf.append(np.zeros(cf[0].shape if cf else n_band, np.complex64))
                         ct.append(0.0)
                     else:
                         tile, coef, cen, band_lo, band_n = out

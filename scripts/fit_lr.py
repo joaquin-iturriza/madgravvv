@@ -100,35 +100,66 @@ def main() -> int:
                                   ("ch", "coeff_H1"), ("cl", "coeff_L1"),
                                   ("gh", "centroid_H1"), ("gl", "centroid_L1"),
                                   ("ah", "arm_H1"), ("al", "arm_L1"))})
+        segs[-1]["span"] = np.asarray(z["span"], dtype=float)
         stride, lo, nfft = float(z["stride"]), int(z["band_lo"]), int(z["band_n"])
-
-    all_h = np.concatenate([s["h"] for s in segs])
-    all_l = np.concatenate([s["l"] for s in segs])
-    norm = {"muH": float(all_h.mean()), "sdH": float(all_h.std()),
-            "muL": float(all_l.mean()), "sdL": float(all_l.std())}
-    for s in segs:
-        s["sh"] = (s["h"] - norm["muH"]) / norm["sdH"]
-        s["sl"] = (s["l"] - norm["muL"]) / norm["sdL"]
 
     # Span-disjoint folds, upstream's assignment.
     fold = np.array([i % 2 for i in range(len(segs))])
+    span_start = np.array([s["span"][0] for s in segs], dtype=float)
     print(f"{len(segs)} spans, folds {fold.tolist()}")
+
+    # PER-FOLD standardisation. Pooling the two folds to compute mu/sd would put a
+    # summary of fold g into the features that fold 1-g's model is later declared held
+    # out from. Two numbers per detector over ~1e5 samples is a small leak, but it is a
+    # leak of exactly the kind everything else here is careful about, and the whole
+    # point of the two-fold construction is that the scoring model saw none of the
+    # trigger's own span.
+    norms = {}
+    for g in (0, 1):
+        h = np.concatenate([s["h"] for i, s in enumerate(segs) if fold[i] == g])
+        l = np.concatenate([s["l"] for i, s in enumerate(segs) if fold[i] == g])
+        norms[g] = {"muH": float(h.mean()), "sdH": float(h.std()),
+                    "muL": float(l.mean()), "sdL": float(l.std())}
+        print(f"  fold {g} sigma_norm: muH={norms[g]['muH']:.6g} "
+              f"sdH={norms[g]['sdH']:.6g} muL={norms[g]['muL']:.6g} "
+              f"sdL={norms[g]['sdL']:.6g}")
 
     z = np.load(args.foreground)
     if "span_index" not in z.files:
         print("foreground has no span_index; re-run scan_injections.py", file=sys.stderr)
         return 1
-    sH = (z["score_H1"].astype(np.float64) - norm["muH"]) / norm["sdH"]
-    sL = (z["score_L1"].astype(np.float64) - norm["muL"]) / norm["sdL"]
-    sig = LR.features(sH, sL, z["coherence"], z["centroid_H1"], z["centroid_L1"],
-                      z["arm_H1"], z["arm_L1"])
-    sig_fold = fold[z["span_index"].astype(int)]
+    if "span_start" in z.files:
+        # Join injections to spans by GPS, not by a position recorded against a
+        # directory listing that may since have changed.
+        idx = np.searchsorted(span_start, z["span_start"].astype(float))
+        if not np.allclose(span_start[np.clip(idx, 0, len(span_start) - 1)],
+                           z["span_start"].astype(float)):
+            print("injection span starts do not match the background spans",
+                  file=sys.stderr)
+            return 1
+        sig_fold = fold[np.clip(idx, 0, len(span_start) - 1)]
+    else:
+        print("foreground has no span_start; falling back to the positional index",
+              file=sys.stderr)
+        sig_fold = fold[z["span_index"].astype(int)]
+
+    def sig_features(g):
+        n = norms[g]
+        return LR.features((z["score_H1"].astype(np.float64) - n["muH"]) / n["sdH"],
+                           (z["score_L1"].astype(np.float64) - n["muL"]) / n["sdL"],
+                           z["coherence"], z["centroid_H1"], z["centroid_L1"],
+                           z["arm_H1"], z["arm_L1"])
 
     plan = make_slide_plan(1.0, args.fit_lags, lag_step_s=args.lag_step)
     half = int(round(0.5 * args.cluster_seconds / stride))
     t0 = time.time()
     models = {}
     for g in (0, 1):
+        n = norms[g]
+        for i, s in enumerate(segs):
+            if fold[i] == g:
+                s["sh"] = (s["h"] - n["muH"]) / n["sdH"]
+                s["sl"] = (s["l"] - n["muL"]) / n["sdL"]
         rows = []
         for lag in plan.lags_s:
             k = int(round(lag / stride))
@@ -147,7 +178,7 @@ def main() -> int:
                                             s["gh"][m], s["gl"][j][m],
                                             s["ah"][m], s["al"][j][m]))
         noise = np.vstack(rows)
-        signal = sig[sig_fold == g]
+        signal = sig_features(g)[sig_fold == g]
         mu, sd, beta = fit_one(noise, signal)
         models[g] = (mu, sd, beta)
         held = 1 - g
@@ -156,18 +187,21 @@ def main() -> int:
               f"beta_coh={beta[3]:+.3f}  [{(time.time()-t0)/60:.1f} min]", flush=True)
         print("   beta = " + " ".join(f"{b:+.3f}" for b in beta), flush=True)
 
-    # Sanity: each model must separate the fold it did NOT see.
+    # Sanity: each model must separate the fold it did NOT see, standardised by its own
+    # fold's sigma_norm -- the same combination `far_lr.py` will use.
     for g in (0, 1):
         mu, sd, beta = models[g]
-        s_other = sig[sig_fold == (1 - g)]
+        s_other = sig_features(g)[sig_fold == (1 - g)]
         print(f"model[{g}] on held-out fold {1-g} signal: median loglr "
               f"{np.median(LR.log_likelihood_ratio(s_other, mu, sd, beta)):.2f}")
 
     np.savez(args.out, **{f"mu{g}": models[g][0] for g in (0, 1)},
              **{f"sd{g}": models[g][1] for g in (0, 1)},
              **{f"be{g}": models[g][2] for g in (0, 1)},
-             fold=fold, sigma_norm=np.array([norm["muH"], norm["sdH"],
-                                             norm["muL"], norm["sdL"]]))
+             fold=fold, span_start=span_start,
+             **{f"norm{g}": np.array([norms[g]["muH"], norms[g]["sdH"],
+                                      norms[g]["muL"], norms[g]["sdL"]])
+                for g in (0, 1)})
     print(f"\nwrote {args.out}")
     return 0
 

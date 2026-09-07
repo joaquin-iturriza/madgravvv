@@ -176,7 +176,7 @@ def main() -> int:
     choice = rng.choice(len(spans), size=args.n_injections, p=live / live.sum())
     t0 = time.time()
     rows, sH, sL, coh, cen, hms, lms, t0s = [], [], [], [], [], [], [], []
-    gH, gL, span_ix = [], [], []
+    gH, gL, span_ix, span_t0 = [], [], [], []
     band_lo = band_n = None
 
     def load(cls, rel):
@@ -217,6 +217,11 @@ def main() -> int:
                 # has to be fitted somewhere, and a model fitted on the span it later
                 # scores is the same leak the fold guard exists to stop one level up.
                 span_ix.append(si)
+                # The GPS start too, not just the position. A positional index is only
+                # meaningful against the exact directory listing that produced it, and
+                # the background span set is still growing; joining on GPS is what makes
+                # the later fold assignment verifiable rather than assumed.
+                span_t0.append(start)
                 coh.append(float(COH.coherence_from_coefficients(
                     coeffs[0:1], coeffs[1:2], band_lo, band_n)[0]))
                 cen.append(cents)
@@ -236,6 +241,7 @@ def main() -> int:
         coherence=np.array(coh, dtype=np.float32),
         centroid_H1=cen[:, 0], centroid_L1=cen[:, 1],
         span_index=np.array(span_ix, dtype=np.int16),
+        span_start=np.array(span_t0, dtype=np.float64),
         arm_H1=np.array(gH, dtype=np.float32),
         arm_L1=np.array(gL, dtype=np.float32),
         cnn_hm=np.array(hms, dtype=np.float32),

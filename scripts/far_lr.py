@@ -78,6 +78,9 @@ def main() -> int:
         m = np.load(args.model)
         own = {g: (m[f"mu{g}"], m[f"sd{g}"], m[f"be{g}"]) for g in (0, 1)}
         span_fold = m["fold"]
+        model_span_start = m["span_start"] if "span_start" in m.files else None
+        own_norms = {g: dict(zip(("muH", "sdH", "muL", "sdL"), m[f"norm{g}"]))
+                     for g in (0, 1)} if "norm0" in m.files else None
         print("using our own fold-disciplined fit; each trigger is scored by the "
               "model that did not see its span")
         for g in (0, 1):
@@ -95,7 +98,8 @@ def main() -> int:
             print(f"{f.name} predates the arm-logit scan; re-run scan_background.py",
                   file=sys.stderr)
             return 1
-        segs.append({"h": z["score_H1"].astype(np.float64),
+        segs.append({"span": np.asarray(z["span"], dtype=float),
+                     "h": z["score_H1"].astype(np.float64),
                      "l": z["score_L1"].astype(np.float64),
                      "ch": z["coeff_H1"], "cl": z["coeff_L1"],
                      "gh": z["centroid_H1"].astype(np.float64),
@@ -113,6 +117,34 @@ def main() -> int:
     for s in segs:
         s["sh"] = (s["h"] - norm["muH"]) / norm["sdH"]
         s["sl"] = (s["l"] - norm["muL"]) / norm["sdL"]
+
+    span_start = np.array([s["span"][0] for s in segs], dtype=float)
+    if own is not None:
+        # Join this run's background files to the fold assignment BY GPS. The fold array
+        # was written by a separate invocation of fit_lr.py against its own directory
+        # listing; if the set of bg_*.npz has gained or lost a file since, a positional
+        # index silently relabels every span past the divergence and a trigger gets
+        # scored by the model that saw its own noise. That is the exact leak the two
+        # folds exist to prevent, and it would fail silently.
+        if model_span_start is None:
+            print("model predates the GPS join; refit with fit_lr.py", file=sys.stderr)
+            return 1
+        if len(model_span_start) != len(span_start) or not np.allclose(
+                np.sort(model_span_start), np.sort(span_start)):
+            print(f"background spans do not match the ones the model was fitted on "
+                  f"({len(span_start)} here, {len(model_span_start)} there); refit",
+                  file=sys.stderr)
+            return 1
+        order = np.searchsorted(np.sort(model_span_start), span_start)
+        span_fold = span_fold[np.argsort(model_span_start)][order]
+        # Per-fold standardisation: a fold-g trigger is scored by model 1-g, so it must
+        # also be standardised by fold 1-g's sigma_norm. Sharing one pooled norm would
+        # put a summary of the trigger's own fold back into its features.
+        if own_norms is not None:
+            for i, s in enumerate(segs):
+                n = own_norms[1 - int(span_fold[i])]
+                s["sh"] = (s["h"] - n["muH"]) / n["sdH"]
+                s["sl"] = (s["l"] - n["muL"]) / n["sdL"]
 
     shift = max(1, int(round(args.lag_step / stride)))
     min_n = min(len(s["sh"]) for s in segs)
@@ -157,17 +189,33 @@ def main() -> int:
 
     # --- foreground ------------------------------------------------------------
     z = np.load(args.foreground)
-    sH = (z["score_H1"].astype(np.float64) - norm["muH"]) / norm["sdH"]
-    sL = (z["score_L1"].astype(np.float64) - norm["muL"]) / norm["sdL"]
-    f = LR.features(sH, sL, z["coherence"], z["centroid_H1"], z["centroid_L1"],
-                    z["arm_H1"], z["arm_L1"])
     if own is not None:
-        if "span_index" not in z.files:
-            print("foreground has no span_index; re-run scan_injections.py",
+        if "span_start" not in z.files:
+            print("foreground has no span_start; re-run scan_injections.py",
                   file=sys.stderr)
             return 1
-        ll = LR.score_held_out(f, span_fold[z["span_index"].astype(int)], own)
+        idx = np.searchsorted(span_start, z["span_start"].astype(float))
+        idx = np.clip(idx, 0, len(span_start) - 1)
+        if not np.allclose(span_start[idx], z["span_start"].astype(float)):
+            print("injection span starts do not match the background spans",
+                  file=sys.stderr)
+            return 1
+        inj_fold = span_fold[idx]
+        # each injection standardised by the norm of the model that will score it
+        sH = np.empty(len(inj_fold)); sL = np.empty(len(inj_fold))
+        for g in (0, 1):
+            m_ = inj_fold == g
+            n = (own_norms[1 - g] if own_norms is not None else norm)
+            sH[m_] = (z["score_H1"].astype(np.float64)[m_] - n["muH"]) / n["sdH"]
+            sL[m_] = (z["score_L1"].astype(np.float64)[m_] - n["muL"]) / n["sdL"]
+        f = LR.features(sH, sL, z["coherence"], z["centroid_H1"], z["centroid_L1"],
+                        z["arm_H1"], z["arm_L1"])
+        ll = LR.score_held_out(f, inj_fold, own)
     else:
+        sH = (z["score_H1"].astype(np.float64) - norm["muH"]) / norm["sdH"]
+        sL = (z["score_L1"].astype(np.float64) - norm["muL"]) / norm["sdL"]
+        f = LR.features(sH, sL, z["coherence"], z["centroid_H1"], z["centroid_L1"],
+                        z["arm_H1"], z["arm_L1"])
         ll = LR.log_likelihood_ratio(f, mu, sd, beta)
     keep = np.ones(len(ll), bool)
     if args.gate:

@@ -514,7 +514,8 @@ disagrees with this table, the table wins.
 | Knob | Value | Kind |
 |---|---|---|
 | representation | `baseline` (256x128, log1p, per-tile min-max, 1 channel) | fixed — the upstream path; R1–R4 vary it deliberately |
-| `folds.n_folds` / `eval_fold` / `hpo_val_frac` | `2` / `1` / `0.25` | fixed — the upstream fold structure |
+| `folds.n_folds` / `eval_fold` | `2` / `1` | fixed — the upstream fold structure |
+| `hpo_val_frac` / `hpo_bg_frac` | `0.20` / `0.30` | fixed — fit / select / background, in GPS order. The background share is what limits how deep a FAR can be quoted; the fit share is limited by tiles built, not livetime |
 | `param_budget_reference` / `enforce_param_budget` | `config/param_budget.yaml` / `true` | fixed |
 | stage-1 `training.lr` / `weight_decay` / `batchsize` | `1e-3` / `1e-5` / `64` | fixed — upstream values, the reproduction target |
 | stage-1 `scheduler` | `ReduceLROnPlateau(0.5, 5)` | fixed — upstream |

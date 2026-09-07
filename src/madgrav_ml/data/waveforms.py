@@ -164,7 +164,8 @@ class LALWaveformBackend:
         approx = lalsim.GetApproximantFromString(self.approximant_name)
         # A volumetric draw carries its own distance and is NOT rescaled afterwards, so
         # the distance here is the physical amplitude rather than an arbitrary reference.
-        distance = getattr(params, "distance_mpc", None) or self.distance_mpc
+        per_injection = getattr(params, "distance_mpc", None)
+        distance = self.distance_mpc if per_injection is None else per_injection
         hp, hc = lalsim.SimInspiralTD(
             params.mass1 * lal.MSUN_SI,
             params.mass2 * lal.MSUN_SI,

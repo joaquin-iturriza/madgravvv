@@ -259,9 +259,14 @@ def main() -> int:
                    "background_livetime_yr": T_yr, "n_lags": n_lags,
                    "n_background": int(background.size), "gate_applied": args.gate,
                    "thresholds": rows, "efficiency_vs_snr": by_snr}, fh, indent=2)
+    # Record which statistic produced this background. A threshold read off it is only
+    # meaningful for a foreground scored by the same coefficients and the same per-fold
+    # norms, and nothing downstream could previously check that.
     np.savez_compressed(f"{args.out}_background.npz",
                         loglr=background.astype(np.float32),
-                        background_livetime_s=T)
+                        background_livetime_s=T,
+                        model_path=str(args.model) if args.model else "shipped",
+                        gate_applied=bool(args.gate))
     np.savez_compressed(f"{args.out}_foreground.npz", loglr=ll.astype(np.float32),
                         keep=keep, network_snr=snr.astype(np.float32))
     print(f"\nwrote {args.out}.json / _background.npz / _foreground.npz")

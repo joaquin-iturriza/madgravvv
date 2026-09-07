@@ -388,3 +388,55 @@ def test_build_backend_dispatches_and_refuses_unknown():
     assert build_backend("cbc").approximant_name == "IMRPhenomPv2"
     with pytest.raises(ValueError, match="unknown waveform family"):
         build_backend("chirplet")
+
+
+def test_aligned_spin_draw_is_unchanged_by_the_precessing_option():
+    """The aligned path must consume the RNG exactly as before the option existed.
+
+    `_spins` draws the same two uniforms first, and the volumetric `distance_mpc`
+    expression short-circuits without touching the stream when no horizon is set, so an
+    aligned non-volumetric draw is bit-identical to the old one. If that ever stops being
+    true, every previously-generated bank silently stops being reproducible from its seed.
+    """
+    from madgrav_ml.data.injections import ParameterSampler
+
+    a = ParameterSampler(seed=7).draw()
+    b = ParameterSampler(seed=7).draw()
+    assert a.as_dict() == b.as_dict()
+    assert (a.spin1x, a.spin1y, a.spin2x, a.spin2y) == (0.0, 0.0, 0.0, 0.0)
+    assert a.distance_mpc is None and a.network_snr is not None
+
+
+def test_precessing_spins_are_isotropic_not_uniform_in_components():
+    """Uniform-in-components would concentrate directions toward the cube's corners.
+
+    Magnitude uniform in [0, a_max], cos(theta) uniform in [-1, 1], phi uniform is the
+    isotropic prior; the test is that cos(theta) comes out flat.
+    """
+    from madgrav_ml.data.injections import ParameterSampler
+
+    s = ParameterSampler(seed=3, precessing=True)
+    v = np.array([[p.spin1x, p.spin1y, p.spin1z] for p in
+                  (s.draw() for _ in range(4000))])
+    mag = np.linalg.norm(v, axis=1)
+    assert mag.max() <= 0.99 + 1e-9
+    cos_t = v[:, 2] / np.maximum(mag, 1e-12)
+    # flat in cos(theta): each half should hold about half the samples
+    assert abs((cos_t > 0).mean() - 0.5) < 0.03
+    assert abs((np.abs(cos_t) < 0.5).mean() - 0.5) < 0.04
+
+
+def test_scale_factor_is_unity_only_for_a_volumetric_draw():
+    """The distance IS the amplitude in volumetric mode. If an SNR-targeted draw ever
+    reached that branch its amplitude would be whatever the reference distance gave."""
+    from madgrav_ml.data.injections import ParameterSampler
+
+    e = engine("network", ("H1", "L1"))
+    targeted = ParameterSampler(seed=1).draw()
+    volumetric = ParameterSampler(seed=1, distance_max_mpc=2000.0).draw()
+    assert volumetric.network_snr is None and volumetric.distance_mpc is not None
+
+    w = e.backend.generate_window(volumetric, FS, WINDOW)
+    assert e.scale_factor(w, "H1", volumetric, W.REFERENCE_GPS) == 1.0
+    w2 = e.backend.generate_window(targeted, FS, WINDOW)
+    assert e.scale_factor(w2, "H1", targeted, W.REFERENCE_GPS) != 1.0

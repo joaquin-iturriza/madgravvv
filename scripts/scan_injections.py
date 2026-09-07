@@ -78,7 +78,7 @@ def _pair(args):
     came from, and both detectors must carry the same source with its true relative
     amplitude and arrival delay — that relationship is the entire content of both vetoes.
     """
-    raw_h1, raw_l1, gps, params = args
+    raw_h1, raw_l1, gps, params, achieved = args
     try:
         tiles, mags, coeffs, cents = [], [], [], []
         lo = n = None
@@ -101,8 +101,12 @@ def _pair(args):
         with torch.no_grad():
             x = torch.from_numpy(np.stack(tiles)).float()
             arm = np.mean([a(x).numpy() for a in g["arms"]], axis=0)
+        # `achieved` rides along with the work item rather than being accumulated in
+        # parallel by the parent: a dropped injection removes its row, and a separately
+        # accumulated list would then attach every later SNR to the wrong source with
+        # matching lengths and no symptom.
         return (np.stack(tiles), np.stack(coeffs), np.array(cents),
-                lo, n, hm, lm, t0, arm, params)
+                lo, n, hm, lm, t0, arm, achieved, params)
     except Exception:
         return None
 
@@ -136,6 +140,11 @@ def main() -> int:
                     help="wider than the training band (8, 25) on purpose: an "
                          "efficiency curve needs points where it is near 0 and near 1")
     args = ap.parse_args()
+
+    if args.distance_max and args.family == "burst":
+        ap.error("--distance-max has no meaning for --family burst: BurstSampler draws "
+                 "an SNR, not a distance, so the campaign would silently come out "
+                 "SNR-targeted and only fail later in sensitive_volume.py")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     blob = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -188,6 +197,7 @@ def main() -> int:
     t0 = time.time()
     rows, sH, sL, coh, cen, hms, lms, t0s = [], [], [], [], [], [], [], []
     gH, gL, span_ix, span_t0, achieved = [], [], [], [], []
+    attempted = 0
     band_lo = band_n = None
 
     def load(cls, rel):
@@ -215,18 +225,22 @@ def main() -> int:
             work = []
             for i in starts:
                 gps = start + int(i) / fs + 0.5 * args.window_seconds
+                params = sampler.draw(rng)
                 work.append((arrs["H1"][i:i + n_samp], arrs["L1"][i:i + n_samp],
-                             gps, sampler.draw(rng)))
-            if args.distance_max:
-                for w in work:
-                    achieved.append(engine.achieved_network_snr(w[3], w[2]))
+                             gps, params,
+                             engine.achieved_network_snr(params, gps)
+                             if args.distance_max else None))
+            attempted += len(work)
             for out in pool.imap(_pair, work, chunksize=4):
                 if out is None:
                     continue
-                tiles, coeffs, cents, band_lo, band_n, hm, lm, cam_t0, arm, params = out
+                (tiles, coeffs, cents, band_lo, band_n, hm, lm, cam_t0, arm,
+                 achieved_i, params) = out
                 sc = score(model, tiles, device)
                 sH.append(float(sc[0])); sL.append(float(sc[1]))
                 gH.append(float(arm[0])); gL.append(float(arm[1]))
+                if achieved_i is not None:
+                    achieved.append(achieved_i)
                 # Which coincident span this injection landed in. The likelihood ratio
                 # has to be fitted somewhere, and a model fitted on the span it later
                 # scores is the same leak the fold guard exists to stop one level up.
@@ -246,11 +260,16 @@ def main() -> int:
                   f"[{el/60:.1f} min]", flush=True)
 
     keys = [k for k in (sorted(rows[0]) if rows else []) if rows[0][k] is not None]
-    extra = {}
+    # An injection that failed is an injection that was NOT recovered, so the VT
+    # denominator is what was attempted, not what survived. Record both, and the
+    # requested horizon rather than the largest realised draw.
+    extra = {"n_attempted": np.int64(attempted)}
+    if args.distance_max:
+        extra["distance_max_requested_mpc"] = np.float64(args.distance_max)
     if achieved:
         # In volumetric mode `network_snr` is None on the way in; the achieved value is
         # what the efficiency curve is read against.
-        extra["achieved_network_snr"] = np.array(achieved[:len(rows)], dtype=np.float32)
+        extra["achieved_network_snr"] = np.array(achieved, dtype=np.float32)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     cen = np.asarray(cen, dtype=np.float32)
     np.savez_compressed(

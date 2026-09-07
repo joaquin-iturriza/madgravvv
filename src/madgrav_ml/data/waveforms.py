@@ -267,6 +267,49 @@ def snr2_fraction_in_crop(whitened: np.ndarray, sample_rate: int,
     return float(np.sum(w[lo:lo + keep] ** 2) / total)
 
 
+class SineGaussianBackend:
+    """Sine-Gaussian bursts, the out-of-family probe.
+
+    `h+ = exp(-t^2/tau^2) cos(2 pi f0 t)`, `hx = exp(-t^2/tau^2) sin(2 pi f0 t)`, with
+    `tau = Q / (sqrt(2) pi f0)` — the standard burst convention, so Q is the number of
+    cycles within the envelope rather than a free scale.
+
+    Nothing here is a chirp: the frequency is constant, so the track a compact binary
+    draws on a time-frequency tile is absent by construction. That is exactly the point.
+    A search whose efficiency collapses on these is one that has learned the waveform
+    family it was tuned on rather than "not noise", and an anomaly search claiming
+    model-independence has to be measured against something it was not shown.
+
+    Presents the same interface as `LALWaveformBackend` so `InjectionEngine` needs no
+    knowledge of which is in use: the projection, the antenna factors, the geocentre
+    delay and the SNR rescaling are shared verbatim, and any difference in the measured
+    efficiency is therefore attributable to the waveform alone.
+    """
+
+    def __init__(self, f_lower: float = DEFAULT_F_LOWER):
+        self.approximant_name = "SineGaussian"
+        self.f_lower = float(f_lower)
+
+    def generate(self, params, sample_rate: int,
+                 duration: float) -> tuple[np.ndarray, np.ndarray]:
+        w = self.generate_window(params, sample_rate, duration)
+        return w.plus, w.cross
+
+    def generate_window(self, params, sample_rate: int,
+                        duration: float) -> GeneratedWaveform:
+        n = int(round(duration * sample_rate))
+        t = (np.arange(n) - n // 2) / float(sample_rate)
+        f0 = float(params.frequency)
+        tau = float(params.quality) / (np.sqrt(2.0) * np.pi * f0)
+        envelope = np.exp(-(t ** 2) / (tau ** 2))
+        phase = 2.0 * np.pi * f0 * t + float(params.phase)
+        # The amplitude is arbitrary: everything is rescaled to a target SNR downstream,
+        # exactly as for the LAL waveforms.
+        return GeneratedWaveform(envelope * np.cos(phase),
+                                 envelope * np.sin(phase),
+                                 int(sample_rate), 0.0)
+
+
 class InjectionEngine:
     """Draws a waveform, projects it onto a detector, whitens it, scales it, adds it.
 
@@ -373,6 +416,19 @@ class InjectionEngine:
                 "injection engine and the noise provider"
             )
         return strain + h
+
+
+def build_backend(name: str, cfg=None):
+    """`cbc` (the tuned family) or `burst` (the out-of-family probe)."""
+    if name == "burst":
+        return SineGaussianBackend()
+    if name in ("cbc", "lal"):
+        get = (lambda k, d: cfg.get(k, d)) if cfg is not None else (lambda k, d: d)
+        return LALWaveformBackend(
+            approximant=get("approximant", DEFAULT_APPROXIMANT),
+            f_lower=float(get("injection_f_lower", DEFAULT_F_LOWER)),
+            distance_mpc=float(get("injection_distance_mpc", DEFAULT_DISTANCE_MPC)))
+    raise ValueError(f"unknown waveform family {name!r}; known: cbc, burst")
 
 
 def build_engine(cfg, sample_rate: int) -> InjectionEngine:

@@ -327,3 +327,64 @@ def test_sampler_with_an_external_rng_is_reproducible_and_independent():
     c = s.draw(np.random.default_rng([7, 1]))
     assert a.as_dict() == b.as_dict()
     assert a.as_dict() != c.as_dict()
+
+
+# --- the out-of-family probe --------------------------------------------------
+
+
+def test_sine_gaussian_has_no_chirp_and_the_right_envelope():
+    """The point of the burst family is that it is NOT a compact binary.
+
+    Constant frequency, Gaussian envelope, so the rising track a merger draws on a
+    time-frequency tile is absent by construction. A search whose efficiency collapses
+    on these has learned the waveform family it was tuned on rather than "not noise".
+    """
+    from madgrav_ml.data.injections import BurstSampler
+    from madgrav_ml.data.waveforms import SineGaussianBackend
+
+    p = BurstSampler(seed=0).draw()
+    p = type(p)(**{**p.as_dict(), "frequency": 150.0, "quality": 10.0, "phase": 0.0})
+    w = SineGaussianBackend().generate_window(p, FS, WINDOW)
+    n = len(w.plus)
+    assert n == int(WINDOW * FS)
+
+    # envelope peaks at the centre and the amplitude is symmetric about it
+    amp = np.hypot(w.plus, w.cross)
+    assert int(np.argmax(amp)) == pytest.approx(n // 2, abs=2)
+    tau = 10.0 / (np.sqrt(2.0) * np.pi * 150.0)
+    half = int(tau * FS)
+    assert amp[n // 2 + half] == pytest.approx(np.exp(-1.0), rel=0.05)
+
+    # one dominant frequency, at f0, and no upward sweep
+    spec = np.abs(np.fft.rfft(w.plus))
+    freqs = np.fft.rfftfreq(n, 1.0 / FS)
+    assert freqs[np.argmax(spec)] == pytest.approx(150.0, abs=2.0)
+
+
+def test_burst_family_shares_the_projection_and_snr_machinery():
+    """Sky, polarisation, delay and SNR rescaling must be identical to the CBC path, so
+    a difference in measured efficiency is attributable to the waveform alone."""
+    from madgrav_ml.data.injections import BurstSampler
+    from madgrav_ml.data.waveforms import SineGaussianBackend
+
+    psd = real_psd("H1")
+    e = W.InjectionEngine(
+        backend=SineGaussianBackend(), psds={"H1": psd}, notch_lines={"H1": ()},
+        sample_rate=FS, window_seconds=WINDOW, snr_convention="detector",
+    )
+    p = BurstSampler(seed=1).draw()
+    p = type(p)(**{**p.as_dict(), "network_snr": 20.0})
+    h = e.whitened_signal(p, "H1", W.REFERENCE_GPS)
+    rng = np.random.default_rng(0)
+    noise = coloured_noise(psd, int(WINDOW * FS), rng)
+    sigma = float(np.std(whiten(noise, FS, reference_psd=psd)[FS:3 * FS]))
+    assert np.isclose(matched_filter_snr(h, h, sigma), 20.0, rtol=0.10)
+
+
+def test_build_backend_dispatches_and_refuses_unknown():
+    from madgrav_ml.data.waveforms import build_backend
+
+    assert build_backend("burst").approximant_name == "SineGaussian"
+    assert build_backend("cbc").approximant_name == "IMRPhenomPv2"
+    with pytest.raises(ValueError, match="unknown waveform family"):
+        build_backend("chirplet")

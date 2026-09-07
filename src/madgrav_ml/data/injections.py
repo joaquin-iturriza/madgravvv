@@ -62,6 +62,78 @@ class InjectionParameters:
         return asdict(self)
 
 
+# Sine-Gaussian burst population, for the out-of-family test. Central frequencies span
+# the band the search is sensitive in; the quality factor sets how many cycles the burst
+# lasts, from a near-impulse to a long ringing tone.
+BURST_F0_RANGE = (40.0, 400.0)
+BURST_Q_RANGE = (3.0, 30.0)
+
+
+@dataclass
+class BurstParameters:
+    """A sine-Gaussian burst. Deliberately NOT a compact binary.
+
+    Carries the same sky, polarisation, time and SNR fields as `InjectionParameters` so
+    the projection and SNR-rescaling machinery is shared verbatim — the only thing that
+    differs is the waveform, which is the point. An anomaly search is supposed to be
+    sensitive to things it was not tuned on, and every number this project has quoted so
+    far was measured against the same IMRPhenomPv2 population the ranking statistic was
+    fitted to.
+    """
+
+    frequency: float
+    quality: float
+    network_snr: float
+    ra: float
+    dec: float
+    psi: float
+    inclination: float
+    phase: float
+    time_shift: float
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+class BurstSampler:
+    """Draws sine-Gaussian bursts. Sky and time distributions match `ParameterSampler`
+    exactly, so a difference in measured efficiency is attributable to the waveform and
+    not to where or when the sources were placed."""
+
+    def __init__(
+        self,
+        seed: int | None = None,
+        f0_range: tuple[float, float] = BURST_F0_RANGE,
+        q_range: tuple[float, float] = BURST_Q_RANGE,
+        snr_range: tuple[float, float] = NETWORK_SNR_RANGE,
+        time_shift_range: tuple[float, float] = COALESCENCE_SHIFT_RANGE,
+    ):
+        self.rng = np.random.default_rng(seed)
+        self.f0_range = f0_range
+        self.q_range = q_range
+        self.snr_range = snr_range
+        self.time_shift_range = time_shift_range
+
+    def draw(self, rng=None) -> BurstParameters:
+        r = self.rng if rng is None else rng
+        return BurstParameters(
+            # log-uniform in frequency: the band spans a decade and a linear draw would
+            # put most bursts above 200 Hz, where the detectors are least sensitive
+            frequency=float(np.exp(r.uniform(*np.log(self.f0_range)))),
+            quality=float(r.uniform(*self.q_range)),
+            network_snr=float(r.uniform(*self.snr_range)),
+            ra=float(r.uniform(0.0, 2.0 * np.pi)),
+            dec=float(np.arcsin(r.uniform(-1.0, 1.0))),
+            psi=float(r.uniform(0.0, np.pi)),
+            inclination=float(np.arccos(r.uniform(-1.0, 1.0))),
+            phase=float(r.uniform(0.0, 2.0 * np.pi)),
+            time_shift=float(r.uniform(*self.time_shift_range)),
+        )
+
+    def draw_many(self, n: int, rng=None) -> list[BurstParameters]:
+        return [self.draw(rng) for _ in range(n)]
+
+
 class WaveformBackend(Protocol):
     """Anything that can turn parameters into an h+, hx pair at a sample rate."""
 

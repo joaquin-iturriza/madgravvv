@@ -42,14 +42,14 @@ import lal  # noqa: F401,E402
 import lalsimulation  # noqa: F401,E402
 import torch  # noqa: E402
 
-from madgrav_ml.data.injections import ParameterSampler  # noqa: E402
+from madgrav_ml.data.injections import BurstSampler, ParameterSampler  # noqa: E402
 from madgrav_ml.data.representation import (  # noqa: E402
     TileSpec, make_tile, notch, notch_lines_for, whiten,
 )
 from madgrav_ml.data.strain import (  # noqa: E402
     SegmentReader, available_segments, load_reference_psd, load_segments,
 )
-from madgrav_ml.data.waveforms import InjectionEngine, LALWaveformBackend  # noqa: E402
+from madgrav_ml.data.waveforms import InjectionEngine, build_backend  # noqa: E402
 from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval import specialists as SP  # noqa: E402
 from madgrav_ml.eval.folds import FoldGuard, Split  # noqa: E402
@@ -122,6 +122,11 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--window-seconds", type=float, default=4.0)
     ap.add_argument("--seed", type=int, default=2024)
+    ap.add_argument("--family", choices=("cbc", "burst"), default="cbc",
+                    help="'cbc' is the IMRPhenomPv2 population everything was tuned on; "
+                         "'burst' is sine-Gaussian, which has no chirp track at all and "
+                         "is the out-of-family probe an anomaly search has to be "
+                         "measured against")
     ap.add_argument("--snr-range", type=float, nargs=2, default=(6.0, 40.0),
                     help="wider than the training band (8, 25) on purpose: an "
                          "efficiency curve needs points where it is near 0 and near 1")
@@ -139,8 +144,8 @@ def main() -> int:
     psds = {i: load_reference_psd(PSD_DIR / f"reference_psd_{i}.npz") for i in ("H1", "L1")}
     lines = {i: notch_lines_for(i, "o1") for i in ("H1", "L1")}
     engine = InjectionEngine(
-        backend=LALWaveformBackend(), psds=psds, notch_lines=lines, sample_rate=fs,
-        window_seconds=args.window_seconds, snr_convention="network",
+        backend=build_backend(args.family), psds=psds, notch_lines=lines,
+        sample_rate=fs, window_seconds=args.window_seconds, snr_convention="network",
     )
 
     segs = load_segments(SEGMENTS, ifo="H1") + load_segments(SEGMENTS, ifo="L1")
@@ -158,11 +163,12 @@ def main() -> int:
         return 1
     live = np.array([e - s for (s, e), _ in spans], dtype=float)
     print(f"{len(spans)} coincident spans, {live.sum()/86400:.2f} d; "
-          f"{args.n_injections} injections, network SNR "
+          f"{args.n_injections} {args.family} injections, network SNR "
           f"{args.snr_range[0]}-{args.snr_range[1]}", flush=True)
 
     rng = np.random.default_rng(args.seed)
-    sampler = ParameterSampler(snr_range=tuple(args.snr_range))
+    sampler = (BurstSampler(snr_range=tuple(args.snr_range)) if args.family == "burst"
+               else ParameterSampler(snr_range=tuple(args.snr_range)))
     reader = SegmentReader(REPO / "data_cache/strain", capacity=2)
     n_samp = int(args.window_seconds * fs)
 
@@ -220,7 +226,7 @@ def main() -> int:
             print(f"[{si+1}/{len(spans)}] {int(start)}  {len(rows)} injections  "
                   f"[{el/60:.1f} min]", flush=True)
 
-    keys = sorted(rows[0]) if rows else []
+    keys = sorted(rows[0]) if rows else []   # family-dependent parameter columns
     args.out.parent.mkdir(parents=True, exist_ok=True)
     cen = np.asarray(cen, dtype=np.float32)
     np.savez_compressed(

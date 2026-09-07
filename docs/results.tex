@@ -883,10 +883,13 @@ FAR [1/yr] & Compact binaries & Sine-Gaussian bursts & Retained \\
 \end{tabular}
 \end{center}
 
-Three seeds, ranges in brackets; the two families do not overlap at any rate. The
-compact-binary column is unchanged from Section~\ref{sec:lr} to within a thousandth,
-which confirms the per-fold standardisation correction had the negligible numerical
-effect its size predicted.
+Three seeds, ranges in brackets; the two families do not overlap at any rate.
+Background, slide plan and fold split are identical to Section~\ref{sec:lr} and identical
+between the two columns: the same HPO\_BG spans, split span-disjointly, each family
+scored by the model fitted on the half that did not contain it, with the evaluation fold
+untouched. Only the injected waveform differs. The compact-binary column reproduces
+Section~\ref{sec:lr} to within a few thousandths, which confirms that the per-fold
+standardisation correction had the negligible numerical effect its size predicted.
 
 \subsection*{Reading it}
 
@@ -905,36 +908,61 @@ further out. The second is what is measured.
 
 The glitch arm. Its 5-seed ensemble logit averages $+2.87$ on compact binaries and
 $-1.88$ on bursts, against $-5.75$ on background --- so a burst sits about a third of the
-way from noise to signal in the arm's opinion, and the arm carries the two largest
+way from noise to signal on the arm's scale, and the arm carries the two largest
 likelihood-ratio coefficients after coherence. The CNN gate agrees: it keeps $88.9\%$ of
 compact binaries and $52.3\%$ of bursts.
 
-Both effects sharpen with the burst's central frequency, which is the mechanism stated
-plainly:
+Both effects depend on the burst's central frequency, and the dependence is more
+specific than a simple decline. Figure~\ref{fig:outoffamily} and the following table show
+that the arm's response is \emph{peaked}:
 
 \begin{center}
 \begin{tabular}{lrrr}
 \toprule
 $f_0$ [Hz] & $n$ & Arm logit & CNN gate keeps \\
 \midrule
-40--80    & 2451 & $-0.85$ & $0.743$ \\
-80--150   & 2183 & $-1.71$ & $0.572$ \\
-150--250  & 1789 & $-2.49$ & $0.379$ \\
-250--400  & 1577 & $-3.02$ & $0.280$ \\
+40--55   & 1130 & $-1.08$ & $0.733$ \\
+55--70   &  859 & $\mathbf{-0.63}$ & $0.717$ \\
+70--90   &  852 & $-0.96$ & $\mathbf{0.758}$ \\
+90--115  &  853 & $-1.50$ & $0.613$ \\
+115--150 &  940 & $-2.09$ & $0.485$ \\
+150--200 & 1021 & $-2.38$ & $0.397$ \\
+200--270 & 1033 & $-2.64$ & $0.360$ \\
+270--400 & 1312 & $-3.10$ & $0.261$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-A low-frequency burst is the thing in this population that most resembles the merger of
-a heavy binary --- brief, loud, low in the band --- and the supervised components treat
-it accordingly. As $f_0$ rises the resemblance disappears and so does the score. The
-arms have learned the morphology of the family they were trained on, which is what they
-were asked to do, and it is also precisely what limits the search's reach beyond it.
+The maximum sits between 55 and 90 Hz and the response falls away on both sides. That is
+not what a generic "less signal-like with rising frequency" trend would produce, and it
+is a much more specific statement about what the arms have learned: 55--90 Hz is where a
+heavy binary black hole merges, which is the population these components were trained on.
+A burst placed there is read as a merger; one placed at 300 Hz, or at 45 Hz, is not.
+
+The supervised arms have learned the morphology of the family they were trained on. That
+is what they were asked to do, and it is also precisely what limits the search's reach
+beyond it. A coarser binning of the same data hides this, showing only a monotonic
+decline; the peak is the part that identifies the mechanism rather than merely
+describing the symptom.
 
 Coherence, by contrast, is waveform-agnostic and behaves that way: median $0.179$ on
 bursts against $0.169$ on compact binaries. It is the component carrying whatever
 model-independent sensitivity the pipeline has, and it is the reason the burst column is
 not zero.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{../figures/out_of_family.png}
+\caption{Left: detection efficiency against the false-alarm rate the surviving
+background actually produces, for compact binaries and for sine-Gaussian bursts, three
+seeds each, scored by the same likelihood ratio. The two families separate further as
+the threshold tightens, which is the argument the table makes numerically. Right: the
+mechanism. The glitch arm's ensemble logit on bursts (orange) is peaked between 55 and
+90 Hz, where heavy binaries merge, and falls away on both sides; the CNN gate's retention
+(pink, right axis) follows it. Dashed and dotted lines mark the arm's mean logit on
+compact binaries and on background.}
+\label{fig:outoffamily}
+\end{figure}
 
 \subsection*{What this does and does not license}
 
@@ -957,12 +985,40 @@ are all trained on one waveform family will track that family, and the component
 do not --- coherence above all --- are the ones worth strengthening if
 model-independence is the goal.
 
-\section{Results}
+\section{Where this leaves the improvement programme}
 
-No experiment has yet been run. This section will hold, per change: the hypothesis and
-its mechanism, the measured parameter counts before and after, the fold assignment,
-efficiency and sensitive volume at fixed false-alarm rate in both the network and the
-single-detector form, the seed spread, and the verdict.
+The sections above are the instrument and its calibration, not the improvement
+programme. It is worth separating what has been established from what has not, because
+the two are easy to conflate after this much measurement.
+
+Established. The reproduction gate passes on the inference path and cannot be closed on
+the training path, because the released package contains neither the training data nor
+the signal banks (Section~\ref{sec:stage2}). A false-alarm rate can now be measured, and
+the baseline it gives is $0.196$ at 100/yr with a three-seed spread of $0.045$
+(Section~\ref{sec:baseline}) --- which is the bar any proposed change has to clear.
+Two components that the published pipeline has and our reproduction lacked were added
+and measured: the glitch gate, worth a factor of 15--28 in false-alarm rate at fixed
+efficiency (Section~\ref{sec:gate}), and the likelihood-ratio cascade, worth $+0.446$ in
+efficiency at 100/yr and the difference between detecting nothing and detecting a fifth
+of the population at 1/yr (Section~\ref{sec:lr}). Neither is our improvement; both are
+evidence that the measurement chain can resolve a change at a size the seed spread
+cannot explain.
+
+Not established. No change originating in the improvement plan has been tested. The
+representation ablations, the masked-prediction objective and the architecture work all
+remain untouched, and the front end has been unchanged throughout --- every gain
+reported here came from the readout. Sensitive volume-time has not been computed at all.
+
+What the measurements have changed about the plan. Two orderings in it were wrong.
+Tile-level separation is not search sensitivity, because the binding constraint is the
+glitch tail rather than the signal response (Section~\ref{sec:far}); and the front end
+does not enter the answer for loud sources at all, because the vetoes saturate it
+(Section~\ref{sec:headtohead}). Both point the same way, which is that readout and
+vetoes are where the leverage is, and Section~\ref{sec:outoffamily} sharpens it further:
+the supervised components carry most of the discrimination and most of the
+family-specificity at once. Whatever is done next, the efficiency it is judged by should
+be quoted for at least two waveform families, because one of them is not a measurement
+of an anomaly search.
 
 \begin{thebibliography}{9}
 \bibitem[Inguglia et al.(2026)]{Inguglia2026}

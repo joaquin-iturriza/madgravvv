@@ -190,12 +190,20 @@ def main() -> int:
                         # first window of a segment is the one that failed: deriving it
                         # from cf[0] leaves a length-1 array and np.stack later raises
                         # on the ragged result, killing the shard partway through.
-                        if band_n is None:
-                            _, band_lo, band_n = COH.band_coefficients(
+                        if n_band is None:
+                            # Ask for the real width rather than deriving one. The
+                            # number of retained bins is fixed by COHERENCE_WINDOW_S,
+                            # which `band_coefficients` centre-crops out of the window
+                            # before transforming, and has nothing to do with
+                            # --window-seconds. A hand-rolled formula that divides by a
+                            # literal 4.0 is right only while that flag holds its
+                            # default, and wrong the moment a tile-length ablation
+                            # changes it -- either a ragged np.stack or, if every window
+                            # in the segment fails, a silently wrong-shaped coefficient
+                            # array feeding the coherence feature of every quoted FAR.
+                            probe, band_lo, band_n = COH.band_coefficients(
                                 np.zeros(int(args.window_seconds * fs)), fs)
-                            n_band = int(np.ceil(
-                                (COH.COHERENCE_BAND_HZ[1] - COH.COHERENCE_BAND_HZ[0])
-                                * args.window_seconds / 4.0)) + 1
+                            n_band = probe.shape[-1]
                         buf.append(np.zeros((1,) + spec.size, np.float32))
                         cf.append(np.zeros(cf[0].shape if cf else n_band, np.complex64))
                         ct.append(0.0)

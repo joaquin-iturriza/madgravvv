@@ -159,3 +159,25 @@ def test_is_massive_needs_both_morphology_and_coherence():
     assert C.is_massive(np.array([0.5]), np.array([low]), np.array([low]))[0]
     assert not C.is_massive(np.array([0.5]), np.array([high]), np.array([low]))[0]
     assert not C.is_massive(np.array([0.01]), np.array([low]), np.array([low]))[0]
+
+
+def test_band_width_is_set_by_the_coherence_window_not_the_analysis_window():
+    """The retained bin count depends on COHERENCE_WINDOW_S, not on the window length.
+
+    `band_coefficients` centre-crops to the coherence window before transforming, so a
+    4 s and an 8 s analysis window yield the SAME number of in-band coefficients. A
+    background scan that derives a placeholder width from its own --window-seconds gets
+    this wrong everywhere but the default, and the failure is either a ragged np.stack
+    or a silently mis-shaped coefficient array feeding the coherence feature of every
+    quoted false-alarm rate.
+    """
+    widths = {}
+    for seconds in (4.0, 8.0, 16.0):
+        coeffs, lo, n = C.band_coefficients(np.zeros(int(seconds * FS)), FS)
+        widths[seconds] = coeffs.shape[-1]
+        assert n == int(C.COHERENCE_WINDOW_S * FS)
+    assert len(set(widths.values())) == 1, widths
+
+    # and it matches the band actually asked for, at the 1 s window's 1 Hz resolution
+    lo_hz, hi_hz = C.COHERENCE_BAND_HZ
+    assert widths[4.0] == int(hi_hz - lo_hz) + 1

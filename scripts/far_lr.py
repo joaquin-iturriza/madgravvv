@@ -126,8 +126,12 @@ def main() -> int:
         # index silently relabels every span past the divergence and a trigger gets
         # scored by the model that saw its own noise. That is the exact leak the two
         # folds exist to prevent, and it would fail silently.
-        if model_span_start is None:
-            print("model predates the GPS join; refit with fit_lr.py", file=sys.stderr)
+        if model_span_start is None or own_norms is None:
+            # Refuse both halves of the stale-artifact case. Falling back to the pooled
+            # norm here would silently reinstate exactly the cross-fold leak the
+            # per-fold norms were added to remove.
+            print("model predates the GPS join or the per-fold norms; refit with "
+                  "fit_lr.py", file=sys.stderr)
             return 1
         if len(model_span_start) != len(span_start) or not np.allclose(
                 np.sort(model_span_start), np.sort(span_start)):
@@ -140,11 +144,10 @@ def main() -> int:
         # Per-fold standardisation: a fold-g trigger is scored by model 1-g, so it must
         # also be standardised by fold 1-g's sigma_norm. Sharing one pooled norm would
         # put a summary of the trigger's own fold back into its features.
-        if own_norms is not None:
-            for i, s in enumerate(segs):
-                n = own_norms[1 - int(span_fold[i])]
-                s["sh"] = (s["h"] - n["muH"]) / n["sdH"]
-                s["sl"] = (s["l"] - n["muL"]) / n["sdL"]
+        for i, s in enumerate(segs):
+            n = own_norms[1 - int(span_fold[i])]
+            s["sh"] = (s["h"] - n["muH"]) / n["sdH"]
+            s["sl"] = (s["l"] - n["muL"]) / n["sdL"]
 
     shift = max(1, int(round(args.lag_step / stride)))
     min_n = min(len(s["sh"]) for s in segs)
@@ -205,7 +208,7 @@ def main() -> int:
         sH = np.empty(len(inj_fold)); sL = np.empty(len(inj_fold))
         for g in (0, 1):
             m_ = inj_fold == g
-            n = (own_norms[1 - g] if own_norms is not None else norm)
+            n = own_norms[1 - g]
             sH[m_] = (z["score_H1"].astype(np.float64)[m_] - n["muH"]) / n["sdH"]
             sL[m_] = (z["score_L1"].astype(np.float64)[m_] - n["muL"]) / n["sdL"]
         f = LR.features(sH, sL, z["coherence"], z["centroid_H1"], z["centroid_L1"],

@@ -934,8 +934,8 @@ $f_0$ [Hz] & $n$ & HM passes & LM passes & Gate keeps & Arm logit \\
 \end{center}
 
 The HM column falls to nothing above 200 Hz, and that is not a statement about
-morphology at all: 200 Hz is outside the band HM is given, so the network is being shown
-an empty crop and answers accordingly. Any veto would do the same. The LM column is the
+morphology at all: HM's band ends at 140 Hz, so above it the network is being shown an
+empty crop and answers accordingly. Any veto would do the same. The LM column is the
 informative one. LM covers 50--500 Hz, so every burst in this population falls inside its
 band, and it still degrades from $0.756$ to $0.260$ across that range. The glitch arm,
 which is not band-limited at all, degrades similarly.

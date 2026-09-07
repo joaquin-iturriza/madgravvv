@@ -5,9 +5,12 @@ The table in Section 12 of `docs/results.tex` gives five rates; the argument it 
 about the SHAPE — that the retained fraction falls as the threshold tightens rather than
 holding constant — and a shape is easier to read off a curve than off five ratios.
 
-Right panel carries the mechanism: the glitch arm's opinion and the CNN gate's retention
-both degrade with the burst's central frequency, because a low-frequency burst is the
-thing in this population that most resembles a heavy merger.
+Right panel separates the two specialists rather than plotting their maximum, because
+their bands differ and the difference is the whole point. HM reads 20-140 Hz and its pass
+fraction collapses past that edge, which says nothing about morphology -- it is being
+shown a crop outside its own band. LM reads 50-500 Hz, so every burst in this population
+lies inside its band, and it degrades anyway. Only the second is evidence that the
+supervised components prefer a waveform morphology.
 
   scripts/remote.sh .venv/bin/python scripts/plot_out_of_family.py
 """

@@ -42,28 +42,39 @@ YEAR = 365.25 * 86400.0
 TARGETS = (100.0, 30.0, 10.0, 3.0, 1.0)
 
 
-def comoving_weight(distance_mpc: np.ndarray) -> np.ndarray:
-    """(dV_c/dV_euclid) / (1+z) at each luminosity distance.
+def comoving_weight(distance_mpc: np.ndarray, n_grid: int = 4000):
+    """(dV_c/dV_euclid) / (1+z) at each luminosity distance, plus the redshifts.
 
     Two corrections in one factor. The comoving volume element differs from the
     Euclidean `4 pi d_L^2 dd_L` the campaign sampled, and an observed rate is diluted by
     (1+z) because clocks at the source run slow. Both matter at a few Gpc and both are
     routinely forgotten.
+
+    Everything is built on a dense monotone redshift GRID and interpolated onto the
+    samples, rather than evaluated per sample. Three reasons, and the first two were
+    found by running it: differentiating d_L against 12000 sorted sample redshifts hits
+    duplicate abscissae and returns NaN, inverting d_L per sample is a numerical
+    root-find repeated 12000 times, and a grid makes both the inversion and the
+    derivative exact-by-construction monotone.
     """
     import astropy.units as u
-    from astropy.cosmology import Planck18, z_at_value
+    from astropy.cosmology import Planck18
 
     d = np.atleast_1d(np.asarray(distance_mpc, dtype=float))
-    # `z_at_value` is a module function, not a method on the cosmology, and it is
-    # vectorised. The per-element loop this replaces never ran at all.
-    z = np.asarray(z_at_value(Planck18.luminosity_distance, d * u.Mpc).value, dtype=float)
-    # dV_c/dz / (dV_euclid/dz), evaluated through the shared dz
-    dvc_dz = Planck18.differential_comoving_volume(z).to(u.Mpc ** 3 / u.sr).value * 4 * np.pi
-    ddl_dz = np.gradient(Planck18.luminosity_distance(np.sort(z)).to(u.Mpc).value,
-                         np.sort(z))
-    ddl_dz = ddl_dz[np.argsort(np.argsort(z))]
-    dve_dz = 4.0 * np.pi * d ** 2 * ddl_dz
-    return (dvc_dz / dve_dz) / (1.0 + z), z
+    z_grid = np.linspace(1e-6, 3.0, n_grid)
+    dl_grid = Planck18.luminosity_distance(z_grid).to(u.Mpc).value
+    if d.max() > dl_grid[-1]:
+        raise ValueError(f"distance {d.max():.0f} Mpc is past the z=3 grid edge")
+
+    # z(d_L) by interpolation on a strictly increasing grid -- no root-finding.
+    z = np.interp(d, dl_grid, z_grid)
+
+    dvc_dz = (Planck18.differential_comoving_volume(z_grid).to(u.Mpc ** 3 / u.sr).value
+              * 4.0 * np.pi)
+    ddl_dz = np.gradient(dl_grid, z_grid)          # strictly increasing: no zero spacing
+    dve_dz = 4.0 * np.pi * dl_grid ** 2 * ddl_dz
+    w_grid = (dvc_dz / dve_dz) / (1.0 + z_grid)
+    return np.interp(d, dl_grid, w_grid), z
 
 
 def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> dict:
@@ -171,7 +182,7 @@ def main() -> int:
     if not len(args.injections) == len(args.far_curve) == len(args.model):
         ap.error("--injections, --far-curve and --model must have the same length: "
                  "each is one seed's campaign, background and statistic")
-    out = args.out or (REPO / f"runs/_checks/vt_{args.injections.stem}.json")
+    out = args.out or (REPO / f"runs/_checks/vt_{args.injections[0].stem}.json")
 
     from madgrav_ml.eval.far import TrialsFactor
 

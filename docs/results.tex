@@ -998,6 +998,75 @@ are all trained on one waveform family will track that family, and the component
 do not --- coherence above all --- are the ones worth strengthening if
 model-independence is the goal.
 
+\section{Sensitive volume}
+\label{sec:vt}
+
+Efficiency at fixed false-alarm rate answers "of the sources injected, how many were
+found", and its value depends on what was injected. The network-SNR-uniform draw used
+everywhere above is an arbitrary choice, and a louder draw raises the efficiency without
+the search improving. Sensitive volume removes that: sources are distributed uniformly in
+volume, which is physics rather than a choice, so integrating recovery over distance
+gives a reach that connects to an observable --- the expected number of detections is the
+astrophysical rate times $VT$.
+
+The campaign has to be drawn over distance for this, and an SNR-targeted one cannot be
+reweighted into it: every source in such a campaign sits at whatever distance made it as
+loud as the draw demanded, so its distance distribution carries no information.
+12\,000 sources per seed were therefore drawn uniform in Euclidean volume out to 5~Gpc,
+with no amplitude rescaling, and the achieved network SNR recorded as an output. The
+horizon was set from a pilot: at 5~Gpc the median achieved SNR is 3.4 and a tenth of
+sources clear 8, so recovery falls to nothing well inside the shell and the integral
+converges.
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+FAR [1/yr] & Found & $V$ Euclid & $V$ comoving & Seed range & Poisson \\
+\midrule
+100 & 374 & $16.33$ & $\mathbf{4.09}$ & $3.59$--$4.81$ & $\pm5\%$ \\
+30  & 226 & $9.89$  & $\mathbf{2.80}$ & $2.37$--$3.36$ & $\pm7\%$ \\
+10  & 128 & $5.61$  & $\mathbf{1.79}$ & $1.43$--$2.12$ & $\pm9\%$ \\
+3   &  67 & $2.94$  & $\mathbf{1.07}$ & $0.84$--$1.26$ & $\pm12\%$ \\
+1   &  39 & $1.72$  & $\mathbf{0.71}$ & $0.56$--$0.83$ & $\pm16\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Volumes in Gpc$^3$; $VT$ for a one-year observation is the same number in Gpc$^3$ yr.
+Three seeds, 12\,000 injections each, all sharing one set of drawn sources so that the
+seeds differ only in the trained model.
+
+\subsection*{The corrections are larger than the result}
+
+Two things in that table are worth more attention than the central values.
+
+The Euclidean and comoving columns differ by a factor of \emph{four}. The comoving
+weight, which carries both the volume element a real population follows and the $(1+z)$
+dilation of an observed rate, runs from $0.88$ at the near edge of the shell to $0.064$
+at the far one. A sensitive volume computed Euclidean-style at these distances is not
+approximately right, it is wrong by a factor that would flatter every comparison built on
+it. Only the comoving column should be quoted.
+
+The seed range exceeds the Poisson error at every rate --- $\pm15$--$19\%$ from training
+stochasticity against $\pm5$--$16\%$ from counting. This settles a practical question:
+enlarging the injection campaign would shrink only the smaller of the two errors. What
+limits a $VT$ measurement here is which model was trained, not how many sources were
+thrown at it, and any future $VT$ comparison needs seeds before it needs statistics.
+
+\subsection*{What it is and is not a measurement of}
+
+The masses are detector-frame. The campaign draws the same component range at every
+distance and passes it to the waveform generator unredshifted, so
+"expected detections $= R \times VT$" holds against a detector-frame rate. A source-frame
+statement would need the masses redshifted, which changes the population at the far edge
+of the shell substantially --- at $z = 0.78$ a 30 $M_\odot$ detector-frame source is
+17 $M_\odot$ intrinsically.
+
+It is also a network number. Constraint C1 makes the single-detector figure primary and
+there is none here, because the ranking statistic uses coherence and has no per-detector
+form. Producing one means building a per-detector statistic first, and that is a change
+to the search rather than to its evaluation.
+
 \section{Where this leaves the improvement programme}
 
 The sections above are the instrument and its calibration, not the improvement

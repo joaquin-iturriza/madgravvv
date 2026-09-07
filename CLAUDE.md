@@ -312,13 +312,20 @@ measured quantities — the only difference is threshold-them vs rank-on-them.
 
 | FAR [1/yr] | chain of cuts | likelihood ratio | LR seed range |
 |---|---|---|---|
-| 100 | 0.196 | **0.642** | 0.612-0.679 |
-| 30 | 0.017 | **0.544** | 0.501-0.589 |
-| 10 | 0.000 | **0.421** | 0.378-0.454 |
-| 1 | 0.000 | **0.220** | 0.186-0.241 |
+| 100 | 0.196 | **0.644** | 0.615-0.680 |
+| 30 | 0.017 | **0.542** | 0.499-0.588 |
+| 10 | 0.000 | **0.417** | 0.371-0.454 |
+| 1 | 0.000 | **0.209** | 0.175-0.239 |
 
-+0.446 at 100/yr against a 0.045 seed spread — 10x the bar. No new training, no new
++0.448 at 100/yr against a 0.045 seed spread — 10x the bar. No new training, no new
 parameters.
+
+**ONE THRESHOLD CONVENTION, AND QUOTE THE ACHIEVED RATE.** `eval/far.py::threshold_at_far`
+is the only one; `far_lr.py` used to pick the rank with `searchsorted` (ceil vs far.py's
+floor), one rank looser, so efficiency was measured at a rate ABOVE nominal while VT in
+the same document used the other rounding. The background is discrete: a nominal 1/yr is
+really **0.70/yr** (the 2nd loudest of ~3e5 slide triggers, nothing between it and the
+3rd). Both target and achieved are now printed and tabulated.
 
 **THE SHIPPED LR COEFFICIENTS LEAK — NEVER USE THEM ON OUR BACKGROUND.**
 `driver_search_multi.fit_lr` fits at RUN TIME on O3a background and protects itself with

@@ -230,7 +230,8 @@ def main() -> int:
                      arm_H1=arm_logit["H1"].astype(np.float32),
                      arm_L1=arm_logit["L1"].astype(np.float32),
                      band_lo=band_lo, band_n=band_n,
-                     stride=args.stride, span=np.array([start, end]))
+                     stride=args.stride, span=np.array([start, end]),
+                     checkpoint=str(args.checkpoint))
             total += len(gps)
             el = time.time() - t0
             print(f"[{si+1}/{len(mine)}] {int(start)}  {len(gps)} grid points  "

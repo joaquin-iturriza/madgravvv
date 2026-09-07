@@ -108,12 +108,24 @@ def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> d
                 f"masks the FOREGROUND only. Its thresholds come from ungated slides, so "
                 f"a VT computed against it would take its threshold from one selection "
                 f"and its efficiency from another. Re-run far_lr.py without --gate.")
-        gated = False
+
     else:
         raise SystemExit(f"{far_path}_background.npz predates model provenance; re-run "
                          f"far_lr.py so the background records its statistic")
 
     z = np.load(inj_path)
+    # The front end has to match too. `model_path` pins the LR coefficients and says
+    # nothing about which CAE produced the scores they are computed from.
+    bg_ck = str(bg["checkpoint"]) if "checkpoint" in bg.files else None
+    fg_ck = str(z["checkpoint"]) if "checkpoint" in z.files else None
+    if bg_ck and fg_ck and bg_ck != fg_ck:
+        raise SystemExit(f"foreground was scored with {fg_ck} and the background with "
+                         f"{bg_ck}: different front ends, so the threshold and the "
+                         f"efficiency come from different searches")
+    if not (bg_ck and fg_ck):
+        print(f"  WARNING: {'foreground' if not fg_ck else 'background'} predates "
+              f"checkpoint provenance, so the two halves cannot be checked against each "
+              f"other. Re-scan to enable it.")
     if "distance_mpc" not in z.files:
         raise SystemExit(f"{inj_path} is not a volumetric campaign; re-run "
                          f"scan_injections.py --distance-max")
@@ -142,11 +154,9 @@ def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> d
     ll = LR.score_held_out(f, fold, own)
 
     # The foreground must carry whatever selection the background carried.
+    # The background is never gated here -- a gated one is refused above -- so the
+    # foreground carries no gate either. Kept explicit rather than implied.
     keep = np.ones(len(ll), bool)
-    if gated:
-        from madgrav_ml.eval import specialists as SP
-
-        keep = ~SP.is_glitch(z["cnn_hm"], z["cnn_lm"])
 
     d = z["distance_mpc"].astype(np.float64)
     # The requested horizon, not the largest realised draw, and the attempted count, not
@@ -182,19 +192,30 @@ def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> d
         # and calling that the error.
         lo_k = max(1, int(round(k - np.sqrt(k))))
         hi_k = min(len(background), int(round(k + np.sqrt(k))))
-        v_hi, v_lo = volume(float(background[lo_k - 1])), volume(float(background[hi_k - 1]))
+        # lo_k is the LOOSER rank, hence the higher threshold and the smaller volume.
+        # Named for what they are rather than for the rank that produced them.
+        v_small = volume(float(background[lo_k - 1]))
+        v_large = volume(float(background[hi_k - 1]))
         out["by_far"][target] = {
             "n_found": int(found.sum()), "n_attempted": n_attempted,
             "n_background_above_threshold": k,
             "sensitive_volume_gpc3_euclid": v_euclid * found.sum() / n_attempted,
             "sensitive_volume_gpc3_comoving": volume(thr),
-            "v_comoving_from_background_count": [min(v_lo, v_hi), max(v_lo, v_hi)],
+            "v_comoving_from_background_count": [min(v_small, v_large),
+                                                 max(v_small, v_large)],
             "rel_error_found": 1.0 / np.sqrt(max(int(found.sum()), 1)),
             "rel_error_background": 1.0 / np.sqrt(max(k, 1)),
         }
+    dropped = n_attempted - len(d)
     print(f"{inj_path.name}: {n_attempted} attempted to {d_max:.0f} Mpc "
           f"(z<={zs.max():.2f}), comoving weight {w.min():.3f}-{w.max():.3f}"
-          + (", gate applied" if gated else ""))
+          + (f", {dropped} DROPPED ({100*dropped/n_attempted:.1f}%)" if dropped else ""))
+    if dropped and dropped > 0.01 * n_attempted:
+        # A drop rate that is not tiny, and worse if it correlates with mass or sky
+        # position, biases the volume downward in a way the denominator alone cannot fix.
+        print(f"  WARNING: {100*dropped/n_attempted:.1f}% of injections failed to "
+              f"generate; if those failures correlate with the source parameters the "
+              f"volume is biased, not merely noisier")
     return out
 
 

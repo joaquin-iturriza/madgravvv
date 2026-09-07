@@ -75,6 +75,8 @@ def main() -> int:
 
     z = np.load(REPO / "data_cache/injections/burst.npz")
     f0 = z["frequency"].astype(np.float64)
+    from madgrav_ml.eval import specialists as SP
+
     hm, lm = z["cnn_hm"].astype(np.float64), z["cnn_lm"].astype(np.float64)
     # The SAME bin edges as the table in results.tex. They were different once, and the
     # figure then disagreed with the table it was supposed to make readable -- the gate
@@ -82,14 +84,19 @@ def main() -> int:
     EDGES = [40, 55, 70, 90, 115, 150, 200, 270, 400]
     centres = [np.sqrt(a * b) for a, b in zip(EDGES[:-1], EDGES[1:])]
     masks = [(f0 >= a) & (f0 < b) for a, b in zip(EDGES[:-1], EDGES[1:])]
+    if any(not m.any() for m in masks):
+        raise SystemExit("an f0 bin is empty; the plotted mean would be NaN and the "
+                         "curve would silently break")
 
     # HM and LM separately, because their bands differ and the difference is the point:
     # HM reads 20-140 Hz and collapses at its own edge, which says nothing about
     # morphology; LM reads 50-500 Hz and degrades across a range it fully covers, which
     # does.
     for series, colour, label in (
-            ([(hm[m] >= 0.5).mean() for m in masks], "C0", "HM specialist (20-140 Hz)"),
-            ([(lm[m] >= 0.5).mean() for m in masks], "C3", "LM specialist (50-500 Hz)")):
+            ([(hm[m] >= SP.GLITCH_THRESH).mean() for m in masks], "C0",
+             "HM specialist (20-140 Hz)"),
+            ([(lm[m] >= SP.GLITCH_THRESH).mean() for m in masks], "C3",
+             "LM specialist (50-500 Hz)")):
         axes[1].plot(centres, series, marker="o", ms=4, color=colour, label=label)
     axes[1].axvspan(140, 400, color="0.85", zorder=0)
     axes[1].text(230, 0.93, "outside HM band", fontsize=7, ha="center", color="0.35")

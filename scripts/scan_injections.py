@@ -103,10 +103,10 @@ def _pair(args):
             arm = np.mean([a(x).numpy() for a in g["arms"]], axis=0)
         # Computed HERE, not in the parent. It returns with its own row, so a dropped
         # injection takes its SNR with it -- a separately accumulated list would attach
-        # every later SNR to the wrong source, with matching lengths and no symptom. It
-        # also belongs in the worker on cost grounds: the parent version ran serially
-        # while sixteen workers idled and regenerated a waveform this function already
-        # has.
+        # every later SNR to the wrong source, with matching lengths and no symptom.
+        # It also belongs in the worker on cost grounds: the parent version ran serially
+        # while sixteen workers idled. (It does regenerate a waveform; the parallelism
+        # is the win, not the reuse.)
         achieved = (_CTX["engine"].achieved_network_snr(params, gps)
                     if want_snr else None)
         return (np.stack(tiles), np.stack(coeffs), np.array(cents),
@@ -264,7 +264,11 @@ def main() -> int:
     # An injection that failed is an injection that was NOT recovered, so the VT
     # denominator is what was attempted, not what survived. Record both, and the
     # requested horizon rather than the largest realised draw.
-    extra = {"n_attempted": np.int64(attempted)}
+    # Which CAE produced these scores. model_path pins the LR coefficients but says
+    # nothing about the front end, so a seed-43 foreground against a seed-42 background
+    # would previously produce a number rather than an error.
+    extra = {"n_attempted": np.int64(attempted),
+             "checkpoint": str(args.checkpoint)}
     if args.distance_max:
         extra["distance_max_requested_mpc"] = np.float64(args.distance_max)
     if achieved:

@@ -798,18 +798,19 @@ features of a single ranking statistic.
 \toprule
 FAR [1/yr] & Chain of cuts & Likelihood ratio & Seed range (LR) \\
 \midrule
-100 & $0.196$ & $\mathbf{0.642}$ & $0.612$--$0.679$ \\
-30  & $0.017$ & $\mathbf{0.544}$ & $0.501$--$0.589$ \\
-10  & $0.000$ & $\mathbf{0.421}$ & $0.378$--$0.454$ \\
-3   & $0.000$ & $\mathbf{0.300}$ & $0.262$--$0.327$ \\
-1   & $0.000$ & $\mathbf{0.220}$ & $0.186$--$0.241$ \\
+100 & $0.196$ & $\mathbf{0.644}$ & $0.615$--$0.680$ \\
+30  & $0.017$ & $\mathbf{0.542}$ & $0.499$--$0.588$ \\
+10  & $0.000$ & $\mathbf{0.417}$ & $0.371$--$0.454$ \\
+3   & $0.000$ & $\mathbf{0.296}$ & $0.262$--$0.324$ \\
+1   & $0.000$ & $\mathbf{0.209}$ & $0.175$--$0.239$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-At 100/yr the difference is $+0.446$ against a seed spread of $0.045$ --- ten times the
+At 100/yr the difference is $+0.448$ against a seed spread of $0.045$ --- ten times the
 bar established in Section~\ref{sec:baseline}. Below 15/yr the cut-based pipeline detects
-nothing at all, and the likelihood ratio recovers a fifth of the population at 1/yr. No
+nothing at all, and the likelihood ratio recovers a fifth of the population at 1/yr. Every rate in
+this table is the achieved one; see Section~\ref{sec:outoffamily}. No
 new training, no new parameters, no new information: the same seven measured quantities,
 combined rather than thresholded.
 
@@ -876,18 +877,25 @@ are, but they still chirp. Where they land says whether the penalty is about the
 waveform or about the morphology.
 
 \begin{center}
-\begin{tabular}{lrrr}
+\begin{tabular}{lrrrr}
 \toprule
-FAR [1/yr] & Aligned (tuned) & Precessing & Sine-Gaussian \\
+FAR target & achieved & Aligned (tuned) & Precessing & Sine-Gaussian \\
 \midrule
-100 & $0.644$ \ [0.615--0.680] & $0.619$ \ [0.587--0.660] & $0.223$ \ [0.204--0.250] \\
-30  & $0.543$ \ [0.501--0.590] & $0.512$ \ [0.465--0.563] & $0.155$ \ [0.136--0.180] \\
-10  & $0.423$ \ [0.378--0.458] & $0.388$ \ [0.342--0.424] & $0.093$ \ [0.077--0.108] \\
-3   & $0.301$ \ [0.263--0.328] & $0.268$ \ [0.233--0.291] & $0.040$ \ [0.028--0.048] \\
-1   & $0.220$ \ [0.186--0.243] & $0.192$ \ [0.160--0.212] & $0.014$ \ [0.008--0.018] \\
+100 & $99.92$ & $0.644$ \ [0.615--0.680] & $0.619$ \ [0.587--0.659] & $0.223$ \ [0.204--0.250] \\
+30  & $29.94$ & $0.542$ \ [0.499--0.588] & $0.511$ \ [0.464--0.561] & $0.154$ \ [0.135--0.179] \\
+10  & $9.75$  & $0.417$ \ [0.371--0.454] & $0.383$ \ [0.336--0.422] & $0.091$ \ [0.074--0.107] \\
+3   & $2.79$  & $0.296$ \ [0.262--0.324] & $0.263$ \ [0.233--0.288] & $0.038$ \ [0.028--0.048] \\
+1   & $0.70$  & $0.209$ \ [0.175--0.239] & $0.182$ \ [0.151--0.208] & $0.012$ \ [0.007--0.016] \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+The second column is there because the background is discrete and the achieved rate is
+not the target. At the loose end the two agree to a part in a thousand; at 1/yr the
+threshold that can actually be placed corresponds to $0.70$/yr, because it is the second
+loudest of a few hundred thousand slide triggers and there is nothing between it and the
+third. Every efficiency in this note is quoted at the achieved rate, not the nominal one,
+and both are given so the difference is visible rather than absorbed.
 
 The precessing column is the informative one. It retains 87--96\% of the tuned
 efficiency, and its seed range overlaps the tuned family's at every rate --- at 100/yr,

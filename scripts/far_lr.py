@@ -39,7 +39,7 @@ from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval import likelihood as LR  # noqa: E402
 from madgrav_ml.eval import specialists as SP  # noqa: E402
 from madgrav_ml.eval.background import make_slide_plan  # noqa: E402
-from madgrav_ml.eval.far import TrialsFactor, far_of  # noqa: E402
+from madgrav_ml.eval.far import TrialsFactor, far_of, threshold_at_far  # noqa: E402
 
 FROZEN = REPO / ".reference/MADGRAV/data/o3a_frozen_lr_off200.npz"
 
@@ -70,7 +70,15 @@ def main() -> int:
                          "background from the same segments we measure on -- the rate "
                          "that comes out is optimistic by an unknown amount.")
     ap.add_argument("--gate", action="store_true",
-                    help="also require max(HM,LM) >= 0.5 on the foreground")
+                    help="require max(HM,LM) >= 0.5 on the foreground. NOTE: the "
+                         "background loop never loads the specialist scores, so the "
+                         "threshold still comes from UNGATED slides and the resulting "
+                         "rate is mislabelled. Use apply_glitch_gate.py instead.")
+    ap.add_argument("--rescore", action="store_true",
+                    help="skip the slide loop and recompute the table from an existing "
+                         "{out}_background.npz and {out}_foreground.npz. The loop is "
+                         "the expensive half and its output is deterministic, so a "
+                         "change to how thresholds are chosen does not need it re-run.")
     args = ap.parse_args()
 
     own = None
@@ -90,6 +98,20 @@ def main() -> int:
         mu, sd, beta = frozen[args.fold]
         print(f"SHIPPED LR fold {args.fold} (fitted on O3a background overlapping ours "
               f"-- rate is optimistic): beta = " + " ".join(f"{b:+.3f}" for b in beta))
+
+    # Check the foreground BEFORE the multi-hour slide loop. A volumetric campaign has
+    # no `network_snr` column (it is an output there, not an input), and discovering
+    # that afterwards wastes the whole run.
+    probe = np.load(args.foreground)
+    missing = [k for k in ("score_H1", "score_L1", "coherence", "centroid_H1",
+                           "centroid_L1", "arm_H1", "arm_L1", "network_snr")
+               if k not in probe.files]
+    if missing:
+        print(f"{args.foreground} is missing {missing}. A volumetric campaign has no "
+              f"network_snr and belongs in sensitive_volume.py, not here.",
+              file=sys.stderr)
+        return 1
+    del probe
 
     segs, stride, lo, nfft = [], None, None, None
     for f in sorted(args.background.glob("bg_*.npz")):
@@ -157,9 +179,18 @@ def main() -> int:
     print(f"{len(segs)} segments, {n_points} points, {n_lags} lags = "
           f"{plan.background_livetime_yr:.2f} yr", flush=True)
 
-    kept = []
+    if args.rescore:
+        cached = np.load(f"{args.out}_background.npz")
+        background = cached["loglr"].astype(np.float64)
+        T = float(cached["background_livetime_s"])
+        T_yr = T / (365.25 * 86400.0)
+        print(f"rescoring against the cached background: {background.size} triggers, "
+              f"{T_yr:.2f} yr")
+        kept = None
+    else:
+        kept = []
     t0 = time.time()
-    for li, lag in enumerate(plan.lags_s):
+    for li, lag in enumerate([] if args.rescore else plan.lags_s):
         k = int(round(lag / stride))
         for si, s in enumerate(segs):
             n = len(s["sh"])
@@ -182,11 +213,12 @@ def main() -> int:
             print(f"  {li+1}/{n_lags} lags, {sum(v.size for v in kept)} stored "
                   f"[{el:.1f} min, eta {el*(n_lags/(li+1)-1):.0f} min]", flush=True)
 
-    background = np.concatenate(kept) if kept else np.array([])
-    T = plan.background_livetime_s
     trials = TrialsFactor(2, 2) if args.trials == 4 else args.trials
     tv = trials.value if hasattr(trials, "value") else trials
-    T_yr = T / (365.25 * 86400.0)
+    if not args.rescore:
+        background = np.concatenate(kept) if kept else np.array([])
+        T = plan.background_livetime_s
+        T_yr = T / (365.25 * 86400.0)
     print(f"\nbackground: {background.size} triggers above loglr {args.keep_above}, "
           f"max {background.max():.2f}" if background.size else "no background")
 
@@ -227,20 +259,29 @@ def main() -> int:
     print(f"foreground: {len(ll)} injections, loglr median {np.median(ll):.2f}, "
           f"max {ll.max():.2f}; gate keeps {keep.mean():.3f}")
 
+    # One convention for "at FAR x", shared with sensitive_volume.py and everything
+    # else: eval/far.py::threshold_at_far. This used to pick the rank with
+    # searchsorted, i.e. ceil(x*T/trials) against far.py's floor -- one rank looser, so
+    # the efficiency was measured at an achieved rate ABOVE the nominal one while the
+    # sensitive volume in the same document used the other rounding. Same label, two
+    # thresholds, and the efficiency side was the optimistic one.
     order = np.sort(background)[::-1]
-    far = tv * np.arange(1, len(order) + 1) / T_yr
     rows = []
-    print(f"\n{'loglr':>9}{'FAR [1/yr]':>13}{'efficiency':>12}")
+    print(f"\n{'loglr':>9}{'FAR target':>12}{'FAR achieved':>14}{'efficiency':>12}")
     for target in (100.0, 30.0, 10.0, 3.0, 1.0):
-        idx = np.searchsorted(far, target)
-        if idx >= len(order):
-            print(f"{'-':>9}{target:>13.0f}   not resolvable "
-                  f"({tv*len(order)/T_yr:.2f}/yr in total)")
+        try:
+            thr = threshold_at_far(background, T, far_target=target, trials=trials)
+        except ValueError:
+            print(f"{'-':>9}{target:>12.0f}   below what "
+                  f"{T_yr:.1f} yr can resolve")
             continue
-        thr = float(order[idx])
+        # The background is discrete, so the achieved rate is generally not the target.
+        # Print it: a nominal 1/yr that is really 0.7/yr is a different operating point.
+        achieved = tv * int((background >= thr).sum()) / T_yr
         e = float(((ll > thr) & keep).mean())
-        rows.append({"far_per_yr": target, "loglr_threshold": thr, "efficiency": e})
-        print(f"{thr:>9.2f}{target:>13.0f}{e:>12.3f}")
+        rows.append({"far_per_yr": target, "far_achieved_per_yr": achieved,
+                     "loglr_threshold": thr, "efficiency": e})
+        print(f"{thr:>9.2f}{target:>12.0f}{achieved:>14.3f}{e:>12.3f}")
 
     by_snr = {}
     if rows:
@@ -257,7 +298,8 @@ def main() -> int:
     with open(f"{args.out}.json", "w") as fh:
         json.dump({"fold": args.fold, "sigma_norm": norm,
                    "background_livetime_yr": T_yr, "n_lags": n_lags,
-                   "n_background": int(background.size), "gate_applied": args.gate,
+                   "n_background": int(background.size),
+                   "foreground_gate_applied": args.gate,
                    "thresholds": rows, "efficiency_vs_snr": by_snr}, fh, indent=2)
     # Record which statistic produced this background. A threshold read off it is only
     # meaningful for a foreground scored by the same coefficients and the same per-fold

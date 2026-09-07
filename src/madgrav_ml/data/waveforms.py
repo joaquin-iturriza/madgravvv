@@ -450,15 +450,22 @@ def build_backend(name: str, cfg=None):
     if name == "precessing":
         # IMRPhenomXPHM carries the precession-induced amplitude and phase modulation
         # that IMRPhenomPv2 with aligned spins does not. Still a chirp, so this sits
-        # between the tuned family and the bursts rather than outside both.
-        return LALWaveformBackend(approximant="IMRPhenomXPHM")
+        # between the tuned family and the bursts rather than outside both. Takes the
+        # same config knobs as the cbc path: a family comparison in which the two arms
+        # used different lower frequencies would not be a waveform comparison.
+        get = (lambda k, d: cfg.get(k, d)) if cfg is not None else (lambda k, d: d)
+        return LALWaveformBackend(
+            approximant="IMRPhenomXPHM",
+            f_lower=float(get("injection_f_lower", DEFAULT_F_LOWER)),
+            distance_mpc=float(get("injection_distance_mpc", DEFAULT_DISTANCE_MPC)))
     if name in ("cbc", "lal"):
         get = (lambda k, d: cfg.get(k, d)) if cfg is not None else (lambda k, d: d)
         return LALWaveformBackend(
             approximant=get("approximant", DEFAULT_APPROXIMANT),
             f_lower=float(get("injection_f_lower", DEFAULT_F_LOWER)),
             distance_mpc=float(get("injection_distance_mpc", DEFAULT_DISTANCE_MPC)))
-    raise ValueError(f"unknown waveform family {name!r}; known: cbc, burst")
+    raise ValueError(
+        f"unknown waveform family {name!r}; known: cbc, precessing, burst")
 
 
 def build_engine(cfg, sample_rate: int) -> InjectionEngine:

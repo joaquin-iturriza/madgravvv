@@ -876,15 +876,15 @@ are, but they still chirp. Where they land says whether the penalty is about the
 waveform or about the morphology.
 
 \begin{center}
-\begin{tabular}{lrrrrr}
+\begin{tabular}{lrrr}
 \toprule
-FAR [1/yr] & Aligned (tuned) & Precessing & Sine-Gaussian & Prec./tuned & Burst/tuned \\
+FAR [1/yr] & Aligned (tuned) & Precessing & Sine-Gaussian \\
 \midrule
-100 & $0.644$ \ [0.615--0.680] & $0.619$ \ [0.587--0.660] & $0.223$ \ [0.204--0.250] & $0.96$ & $0.35$ \\
-30  & $0.543$ \ [0.501--0.590] & $0.512$ \ [0.465--0.563] & $0.155$ \ [0.136--0.180] & $0.94$ & $0.29$ \\
-10  & $0.423$ \ [0.378--0.458] & $0.388$ \ [0.342--0.424] & $0.093$ \ [0.077--0.108] & $0.92$ & $0.22$ \\
-3   & $0.301$ \ [0.263--0.328] & $0.268$ \ [0.233--0.291] & $0.040$ \ [0.028--0.048] & $0.89$ & $0.13$ \\
-1   & $0.220$ \ [0.186--0.243] & $0.192$ \ [0.160--0.212] & $0.014$ \ [0.008--0.018] & $0.87$ & $0.06$ \\
+100 & $0.644$ \ [0.615--0.680] & $0.619$ \ [0.587--0.660] & $0.223$ \ [0.204--0.250] \\
+30  & $0.543$ \ [0.501--0.590] & $0.512$ \ [0.465--0.563] & $0.155$ \ [0.136--0.180] \\
+10  & $0.423$ \ [0.378--0.458] & $0.388$ \ [0.342--0.424] & $0.093$ \ [0.077--0.108] \\
+3   & $0.301$ \ [0.263--0.328] & $0.268$ \ [0.233--0.291] & $0.040$ \ [0.028--0.048] \\
+1   & $0.220$ \ [0.186--0.243] & $0.192$ \ [0.160--0.212] & $0.014$ \ [0.008--0.018] \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -902,10 +902,9 @@ is the property that costs them almost everything. \textbf{The pipeline generali
 sources that chirp and fails on sources that do not} --- it is a chirp detector rather
 than a template-matched detector, and also rather than a generic excess-power detector.
 
-That is a more useful characterisation than either column alone, and a more encouraging
-one: within the class of things that sweep upward in frequency, model-independence
-appears to hold. The reach claimed for anything outside that class does not survive
-contact with a measurement.
+That is a more useful characterisation than either column alone: within the class of
+things that sweep upward in frequency, model-independence appears to hold. The reach
+claimed for anything outside that class is not supported by this measurement.
 
 Three seeds, ranges in brackets; the tuned and burst families do not overlap at any rate.
 Background, slide plan and fold split are identical to Section~\ref{sec:lr} and identical
@@ -1057,6 +1056,9 @@ FAR [1/yr] & Found & $n_\mathrm{bg}$ & $V$ comoving & From background & Across s
 \end{center}
 
 Volumes in Gpc$^3$; $VT$ for a one-year observation is the same number in Gpc$^3$ yr.
+Distances are converted to redshift and comoving volume under Planck18
+\cite{Planck2018}, which matters here for the same reason the rest of this section does:
+the correction it supplies is a factor of four, not a refinement.
 Three seeds, 12\,000 injections each, all sharing one set of drawn sources so that the
 seeds differ only in the trained model.
 
@@ -1093,6 +1095,21 @@ quoting $0.68\,\mathrm{Gpc}^3$ "at 1/yr" attaches a well-determined volume to a 
 determined operating point, and only more distinct livetime fixes that. Neither term
 alone captures it, and the first version of this section reported the smaller one.
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.78\textwidth]{../figures/sensitive_volume.png}
+\caption{Comoving sensitive volume against false-alarm rate, with the three error
+contributions shown separately: the spread over three training seeds, the Poisson error
+on the recovered count, and the background-rank term propagated by moving the threshold
+to the $n_\mathrm{bg} \pm \sqrt{n_\mathrm{bg}}$ ranks. The number of background triggers
+setting each threshold is annotated. The seed band is the widest at every rate, and the
+background band --- which is the term that collapses to two events at 1/yr --- is the
+narrowest, because efficiency varies slowly with threshold there. The rate at which each
+point sits is a different matter, and is not shown: that is limited by $n_\mathrm{bg}$
+directly.}
+\label{fig:vt}
+\end{figure}
+
 \subsection*{What it is and is not a measurement of}
 
 The masses are detector-frame. The campaign draws the same component range at every
@@ -1128,8 +1145,12 @@ cannot explain.
 
 Not established. No change originating in the improvement plan has been tested. The
 representation ablations, the masked-prediction objective and the architecture work all
-remain untouched, and the front end has been unchanged throughout --- every gain
-reported here came from the readout. Sensitive volume-time has not been computed at all.
+remain untouched, and the front end has been unchanged throughout --- every gain reported
+here came from the readout. Sensitive volume has been computed
+(Section~\ref{sec:vt}) but only for the network statistic; the single-detector figure
+that constraint C1 makes primary does not exist, because the ranking statistic uses
+coherence and has no per-detector form, and producing one is a change to the search
+rather than to its evaluation.
 
 What the measurements have changed about the plan. Two orderings in it were wrong.
 Tile-level separation is not search sensitivity, because the binding constraint is the
@@ -1143,6 +1164,12 @@ be quoted for at least two waveform families, because one of them is not a measu
 of an anomaly search.
 
 \begin{thebibliography}{9}
+\bibitem[Planck Collaboration(2020)]{Planck2018}
+Planck Collaboration,
+\emph{Planck 2018 results. VI. Cosmological parameters},
+Astron.\ Astrophys.\ \textbf{641} (2020) A6, arXiv:1807.06209.
+The \texttt{Planck18} parameters as distributed in \texttt{astropy.cosmology}.
+
 \bibitem[Inguglia et al.(2026)]{Inguglia2026}
 G. Inguglia, H. Haigh, K. Vitulov\'a and U. Dupletsa,
 \emph{Towards an anomaly detection pipeline for gravitational waves at the Einstein

@@ -4,11 +4,26 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/figure_pair_guard.sh" },
-          { "type": "command", "command": "bash .claude/hooks/slurm_waiter_guard.sh" },
-          { "type": "command", "command": "bash .claude/hooks/commit_checkpoint.sh" },
-          { "type": "command", "command": "bash .claude/hooks/auto_push.sh" },
-          { "type": "command", "command": "bash .claude/hooks/review_backlog.sh check || true" }
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/figure_pair_guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/slurm_waiter_guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/commit_checkpoint.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/auto_push.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/review_backlog.sh check || true"
+          }
         ]
       }
     ],
@@ -16,25 +31,74 @@
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/block_memory.sh" },
-          { "type": "command", "command": "bash .claude/hooks/constraint_guard.sh || true" },
-          { "type": "command", "command": "bash .claude/hooks/worktree_guard.sh" },
-          { "type": "command", "command": "bash .claude/hooks/review_backlog.sh gate || true" }
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block_memory.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/constraint_guard.sh || true"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/worktree_guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/review_backlog.sh gate || true"
+          }
         ]
       },
       {
         "matcher": "Write",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/md_guard.sh" },
-          { "type": "command", "command": "bash .claude/hooks/plot_guard.sh" }
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/md_guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/plot_guard.sh"
+          }
         ]
       },
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/hpo_guard.sh" },
-          { "type": "command", "command": "bash .claude/hooks/plot_guard.sh" },
-          { "type": "command", "command": "bash .claude/hooks/worktree_fold_guard.sh" }
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/hpo_guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/plot_guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/worktree_fold_guard.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/precompact_notes_guard.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat .claude/working_state.md 2>/dev/null"
+          }
         ]
       }
     ]

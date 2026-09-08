@@ -3,3 +3,9 @@
 #
 # Adding a line here is a record that the user approved a new document. Do not add one
 # on your own judgement.
+# Approved by the user 2026-09-08: volatile working state for long autonomous runs.
+# Read back into context by the SessionStart:compact hook and gated by
+# precompact_notes_guard.sh. Deliberately NOT results.tex: it is overwritten constantly
+# and is not part of the scientific record, so putting it there would trigger the prose
+# reviewer on every update and mix a scratchpad into the lab notebook.
+.claude/working_state.md

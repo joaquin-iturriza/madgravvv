@@ -49,7 +49,7 @@ print(f"torch=={torch.__version__}")
 print(f"torchvision=={torchvision.__version__}")
 PYEOF
 echo "--- pinning ---"; cat "$CONSTRAINTS"
-PIP_CONSTRAINT="$CONSTRAINTS" $PY -m pip install -e ".[dev,deep,gw]"
+PIP_CONSTRAINT="$CONSTRAINTS" $PY -m pip install -e ".[dev,deep,gw,analysis]"
 
 # 3. verify, and refuse to hand back a venv that cannot run on the default partition
 echo

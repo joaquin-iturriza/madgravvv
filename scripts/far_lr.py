@@ -200,7 +200,7 @@ def main() -> int:
         # gate flag was renamed to prevent.
         cached_model = str(cached["model_path"]) if "model_path" in cached.files else ""
         want_model = str(args.model.resolve()) if args.model else "shipped"
-        if cached_model and Path(cached_model).name != Path(want_model).name:
+        if cached_model and Path(cached_model).resolve() != Path(want_model).resolve():
             print(f"cached background {cache_path} was built with {cached_model!r} but "
                   f"--model is {want_model!r}; refusing to mix statistics",
                   file=sys.stderr)
@@ -254,6 +254,15 @@ def main() -> int:
 
     # --- foreground ------------------------------------------------------------
     z = np.load(args.foreground)
+    # The background and the foreground must come from the same front end. The data was
+    # already here and simply not compared: this is the script that produces the quoted
+    # efficiency table, so it is the one that most needs the check.
+    fg_ck = str(z["checkpoint"]) if "checkpoint" in z.files else ""
+    if bg_checkpoint and fg_ck and Path(bg_checkpoint).resolve() != Path(fg_ck).resolve():
+        print(f"background was scanned with {bg_checkpoint} and the foreground with "
+              f"{fg_ck}: different front ends, so the threshold and the efficiency come "
+              f"from different searches", file=sys.stderr)
+        return 1
     if own is not None:
         if "span_start" not in z.files:
             print("foreground has no span_start; re-run scan_injections.py",
@@ -330,6 +339,7 @@ def main() -> int:
                    "rescored": bool(args.rescore),
                    "keep_above": keep_above_used,
                    "cae_checkpoint": bg_checkpoint or None,
+                   "cae_checkpoint_verified": bool(bg_checkpoint and fg_ck),
                    "n_background": int(background.size),
                    "foreground_gate_applied": args.gate,
                    "thresholds": rows, "efficiency_vs_snr": by_snr}, fh, indent=2)
@@ -354,7 +364,9 @@ def main() -> int:
                             foreground_gate_applied=bool(args.gate))
     np.savez_compressed(f"{args.out}_foreground.npz", loglr=ll.astype(np.float32),
                         keep=keep, network_snr=snr.astype(np.float32))
-    print(f"\nwrote {args.out}.json / _background.npz / _foreground.npz")
+    written = ([".json", "_foreground.npz"] if args.rescore
+               else [".json", "_background.npz", "_foreground.npz"])
+    print(f"\nwrote " + " / ".join(f"{args.out}{w}" for w in written))
     return 0
 
 

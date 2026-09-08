@@ -14,9 +14,12 @@
 # into "I cannot lose state without noticing". Same shape as slurm_waiter_guard: the
 # guard does not do the work, it makes skipping the work impossible to do quietly.
 #
-# Staleness is measured against the last commit rather than wall-clock: a session that
-# has committed since it last wrote notes has, by definition, done something worth
-# recording.
+# Staleness is measured against the last commit that touched something OTHER than the
+# notes. Comparing against HEAD outright wedges: the Stop hook commits the notes along
+# with everything else, so the notes are necessarily older than the commit containing
+# them, the next compaction blocks, satisfying it dirties the tree, and the resulting
+# commit makes them stale again. Excluding the notes from their own staleness test is
+# what breaks that loop.
 #
 # Escape hatch: `.claude/.no_notes_needed` — for a compaction that genuinely follows no
 # new work. Adding it is a record that the user approved this.
@@ -47,15 +50,34 @@ if [ ! -f "$NOTES" ]; then
   exit 2
 fi
 
-# Newer than the last commit? Then it reflects the work since that commit.
-last_commit_epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
-notes_epoch=$(stat -c %Y "$NOTES" 2>/dev/null || echo 0)
+# The question is "has real work happened that these notes do not describe?", and file
+# mtimes cannot answer it: notes are written before the commit that contains them, so an
+# mtime test flags them stale the instant they are committed, and satisfying it dirties
+# the tree, which produces another commit, which makes them stale again. Ask git instead.
+#
+#   dirty notes            -> just written, fresh by definition
+#   otherwise              -> count commits touching WORK paths since the commit that
+#                             last changed the notes; any at all means the notes predate
+#                             work they do not mention.
+#
+# Committing the notes alongside the work therefore passes, which is the normal path.
+WORK_PATHS="src scripts jobs config tests docs run.py"
 
-if [ "$notes_epoch" -lt "$last_commit_epoch" ]; then
-  age_min=$(( (last_commit_epoch - notes_epoch) / 60 ))
+if ! git diff --quiet -- "$NOTES" 2>/dev/null || \
+   ! git diff --cached --quiet -- "$NOTES" 2>/dev/null; then
+  exit 0
+fi
+
+notes_commit=$(git log -1 --format=%H -- "$NOTES" 2>/dev/null || echo "")
+if [ -z "$notes_commit" ]; then
+  exit 0   # never committed and not dirty: nothing to compare against
+fi
+behind=$(git rev-list --count "${notes_commit}..HEAD" -- $WORK_PATHS 2>/dev/null || echo 0)
+
+if [ "${behind:-0}" -gt 0 ]; then
   {
-    echo "BLOCKED by precompact_notes_guard: $NOTES is older than the last commit"
-    echo "by ${age_min} min, so work has happened that it does not describe."
+    echo "BLOCKED by precompact_notes_guard: $behind commit(s) have touched source since"
+    echo "$NOTES was last updated, so work has happened that it does not describe."
     echo
     echo "Update it before compacting — the summariser keeps the shape of the"
     echo "conversation, not the reasons behind the decisions in it. Record:"

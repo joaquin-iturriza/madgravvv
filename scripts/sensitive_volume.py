@@ -118,7 +118,12 @@ def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> d
     # nothing about which CAE produced the scores they are computed from.
     bg_ck = str(bg["checkpoint"]) if "checkpoint" in bg.files else None
     fg_ck = str(z["checkpoint"]) if "checkpoint" in z.files else None
-    if bg_ck and fg_ck and Path(bg_ck).name != Path(fg_ck).name:
+    # resolve(), NOT name. Every stage-2 checkpoint in this tree is called
+    # `model_best.pt` -- the seed lives in the run DIRECTORY -- so a basename comparison
+    # compares "model_best.pt" with "model_best.pt" and never fires, while still setting
+    # verified=True. That is worse than no check: it stamps the artifact "verified"
+    # having compared nothing.
+    if bg_ck and fg_ck and Path(bg_ck).resolve() != Path(fg_ck).resolve():
         raise SystemExit(f"foreground was scored with {fg_ck} and the background with "
                          f"{bg_ck}: different front ends, so the threshold and the "
                          f"efficiency come from different searches")

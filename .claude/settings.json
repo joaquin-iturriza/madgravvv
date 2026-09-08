@@ -97,7 +97,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cat .claude/working_state.md 2>/dev/null"
+            "command": "bash .claude/hooks/reinject_working_state.sh"
           }
         ]
       }

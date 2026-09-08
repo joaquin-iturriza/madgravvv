@@ -16,6 +16,7 @@ Run:  python3 .claude/hooks/test_guards.py
 """
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,43 @@ def bash(cmd):
 
 def write(path, content):
     return {"tool_name": "Write", "tool_input": {"file_path": path, "content": content}}
+
+
+def precompact_state():
+    """Exercise precompact_notes_guard against the tree as it stands.
+
+    Deliberately not mocked. The bug this catches was a mismatch between the guard's
+    model of "fresh" and how git actually records a file, so a fake repo would have
+    reproduced the model rather than the reality.
+    """
+    return run("precompact_notes_guard.sh", {"trigger": "auto",
+                                             "hook_event_name": "PreCompact"})
+
+
+# Hooks with no case here, and why. Listed rather than silently tolerated: a hook with
+# no case cannot fail, which is how precompact_notes_guard reached settings.json
+# carrying a live deadlock while this suite reported 18/18. Anything NOT in this set
+# must have a case, so adding an untested guard fails loudly.
+KNOWN_UNTESTED = {
+    # side-effecting on the real repo: they commit, push, or mutate review state
+    "auto_push", "commit_checkpoint", "review_backlog",
+    # depend on live cluster or worktree state that cannot be faked meaningfully
+    "slurm_waiter_guard", "worktree_fold_guard", "worktree_guard",
+    # figure_pair_guard needs a session's worth of written figures to judge
+    "figure_pair_guard",
+    # reinject_working_state only cats a file; its failure mode is covered by the
+    # precompact case, which fails if the file is absent
+    "reinject_working_state",
+}
+
+
+def untested_hooks():
+    """Hooks with neither a case in this file nor an entry in KNOWN_UNTESTED."""
+    import glob
+    body = pathlib.Path(__file__).read_text()
+    names = {pathlib.Path(p).stem for p in glob.glob(os.path.join(HOOKS, "*.sh"))}
+    return sorted(n for n in names
+                  if n not in KNOWN_UNTESTED and f'"{n}.sh"' not in body)
 
 
 def main():
@@ -142,9 +180,26 @@ def main():
         os.rmdir(tmpdir)
 
     n, total = sum(RESULTS), len(RESULTS)
+    # --- precompact_notes_guard ---------------------------------------------------
+    # Committing the notes ALONGSIDE the work must not block the next compaction. An
+    # mtime test made that block, since a file is always older than the commit holding
+    # it; satisfying it dirtied the tree, which made another commit, which blocked
+    # again. A long autonomous run would have deadlocked on its first auto-compaction.
+    blocked = precompact_state()
+    RESULTS.append(not blocked)
+    print(f"  [{'PASS' if not blocked else 'FAIL'}] "
+          f"{'BLOCK' if blocked else 'allow':5s} (want allow)  "
+          f"precompact: notes current with the tree do not block")
+
+    missing = untested_hooks()
+    RESULTS.append(not missing)
+    print(f"  [{'PASS' if not missing else 'FAIL'}] "
+          f"{'allow' if not missing else 'BLOCK':5s} (want allow)  "
+          f"every hook has a case (untested: {missing or 'none'})")
+
+    n, total = sum(RESULTS), len(RESULTS)
     print(f"\n{n}/{total} guard checks passed")
     return 0 if n == total else 1
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -26,6 +26,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
+from madgrav_ml.eval.far import far_of  # noqa: E402
 from madgrav_ml.plotting.style import save_figure, use_style  # noqa: E402
 
 from madgrav_ml.eval.far import TrialsFactor  # noqa: E402
@@ -42,7 +43,10 @@ def curve(tag: str):
     fg = np.load(REPO / f"runs/_checks/{tag}_foreground.npz")
     t_yr = float(bg["background_livetime_s"]) / YEAR
     order = np.sort(bg["loglr"].astype(np.float64))[::-1]
-    far = TRIALS * np.arange(1, len(order) + 1) / t_yr
+    # far_of rather than a private copy: plot_gate_effect.py hardcoded 4 while
+    # plot_out_of_family.py took TrialsFactor, so the two figures would have drawn
+    # different rates the moment Phase 7.1 changes the arm count.
+    far = far_of(order, order, t_yr * YEAR, trials=TRIALS)
     ll = fg["loglr"].astype(np.float64)
     keep = fg["keep"] if "keep" in fg.files else np.ones(len(ll), bool)
     eff = np.array([float(((ll > t) & keep).mean()) for t in order])

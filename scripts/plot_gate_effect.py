@@ -24,10 +24,15 @@ sys.path.insert(0, str(REPO / "src"))
 
 from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval import specialists as SP  # noqa: E402
+from madgrav_ml.eval.far import far_of  # noqa: E402
 from madgrav_ml.plotting.style import save_figure, use_style  # noqa: E402
 
 SEEDS = [("42", "", ""), ("43", "_s43", "_s43"), ("44", "_s44", "_s44")]
-TRIALS = 4
+from madgrav_ml.eval.far import TrialsFactor  # noqa: E402
+
+YEAR = 365.25 * 86400.0
+# Itemised, not a literal: Phase 7.1 reduces the arm count.
+TRIALS = TrialsFactor(2, 2).value
 
 
 def curve(far_curve: Path, foreground: Path, gated: Path | None):
@@ -47,7 +52,10 @@ def curve(far_curve: Path, foreground: Path, gated: Path | None):
         keep = keep & ~SP.is_glitch(z["cnn_hm"], z["cnn_lm"])
 
     order = np.sort(bg)[::-1]
-    far = TRIALS * np.arange(1, len(order) + 1) / T_yr
+    # far_of rather than a private copy: plot_gate_effect.py hardcoded 4 while
+    # plot_out_of_family.py took TrialsFactor, so the two figures would have drawn
+    # different rates the moment Phase 7.1 changes the arm count.
+    far = far_of(order, order, T_yr * YEAR, trials=TRIALS)
     eff = np.array([float(((net > t) & keep).mean()) for t in order])
     return far, eff
 

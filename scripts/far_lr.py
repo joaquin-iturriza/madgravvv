@@ -39,7 +39,7 @@ from madgrav_ml.eval import coherence as COH  # noqa: E402
 from madgrav_ml.eval import likelihood as LR  # noqa: E402
 from madgrav_ml.eval import specialists as SP  # noqa: E402
 from madgrav_ml.eval.background import make_slide_plan  # noqa: E402
-from madgrav_ml.eval.far import TrialsFactor, far_of, threshold_at_far  # noqa: E402
+from madgrav_ml.eval.far import TrialsFactor, threshold_at_far  # noqa: E402
 
 FROZEN = REPO / ".reference/MADGRAV/data/o3a_frozen_lr_off200.npz"
 
@@ -75,10 +75,15 @@ def main() -> int:
                          "threshold still comes from UNGATED slides and the resulting "
                          "rate is mislabelled. Use apply_glitch_gate.py instead.")
     ap.add_argument("--rescore", action="store_true",
-                    help="skip the slide loop and recompute the table from an existing "
-                         "{out}_background.npz and {out}_foreground.npz. The loop is "
-                         "the expensive half and its output is deterministic, so a "
-                         "change to how thresholds are chosen does not need it re-run.")
+                    help="skip the slide loop and recompute the table from a cached "
+                         "background. The foreground is always scored fresh; only the "
+                         "background is reused, and it is never rewritten, because a "
+                         "run that did not compute it must not restamp its provenance.")
+    ap.add_argument("--cached-background", type=Path, default=None,
+                    help="which background to reuse under --rescore. Defaults to "
+                         "{out}_background.npz. The background depends only on the "
+                         "scan and the LR model, NOT on the injection family, so one "
+                         "run per seed can serve all three families.")
     args = ap.parse_args()
 
     own = None
@@ -114,12 +119,14 @@ def main() -> int:
     del probe
 
     segs, stride, lo, nfft = [], None, None, None
+    checkpoints: set = set()
     for f in sorted(args.background.glob("bg_*.npz")):
         z = np.load(f)
         if "arm_H1" not in z.files:
             print(f"{f.name} predates the arm-logit scan; re-run scan_background.py",
                   file=sys.stderr)
             return 1
+        checkpoints.add(str(z["checkpoint"]) if "checkpoint" in z.files else "")
         segs.append({"span": np.asarray(z["span"], dtype=float),
                      "h": z["score_H1"].astype(np.float64),
                      "l": z["score_L1"].astype(np.float64),
@@ -129,6 +136,11 @@ def main() -> int:
                      "ah": z["arm_H1"].astype(np.float64),
                      "al": z["arm_L1"].astype(np.float64)})
         stride, lo, nfft = float(z["stride"]), int(z["band_lo"]), int(z["band_n"])
+    if len(checkpoints) > 1:
+        print(f"background shards were scored with different checkpoints: "
+              f"{sorted(checkpoints)}", file=sys.stderr)
+        return 1
+    bg_checkpoint = next(iter(checkpoints), "")
     n_points = sum(len(s["h"]) for s in segs)
     coincident_s = n_points * stride
 
@@ -180,12 +192,29 @@ def main() -> int:
           f"{plan.background_livetime_yr:.2f} yr", flush=True)
 
     if args.rescore:
-        cached = np.load(f"{args.out}_background.npz")
+        cache_path = args.cached_background or Path(f"{args.out}_background.npz")
+        cached = np.load(cache_path)
+        # The cached background was produced by some particular LR model. Scoring a
+        # foreground with a different one would take the threshold from one statistic
+        # and the efficiency from another, which is the same cross-selection error the
+        # gate flag was renamed to prevent.
+        cached_model = str(cached["model_path"]) if "model_path" in cached.files else ""
+        want_model = str(args.model.resolve()) if args.model else "shipped"
+        if cached_model and Path(cached_model).name != Path(want_model).name:
+            print(f"cached background {cache_path} was built with {cached_model!r} but "
+                  f"--model is {want_model!r}; refusing to mix statistics",
+                  file=sys.stderr)
+            return 1
         background = cached["loglr"].astype(np.float64)
         T = float(cached["background_livetime_s"])
         T_yr = T / (365.25 * 86400.0)
-        print(f"rescoring against the cached background: {background.size} triggers, "
-              f"{T_yr:.2f} yr")
+        n_lags = int(cached["n_lags"]) if "n_lags" in cached.files else -1
+        bg_checkpoint = (str(cached["checkpoint"]) if "checkpoint" in cached.files
+                         else "")
+        keep_above_used = (float(cached["keep_above"]) if "keep_above" in cached.files
+                           else args.keep_above)
+        print(f"rescoring against {cache_path.name}: {background.size} triggers, "
+              f"{T_yr:.2f} yr, {n_lags} lags, model {Path(cached_model).name or '?'}")
         kept = None
     else:
         kept = []
@@ -219,6 +248,7 @@ def main() -> int:
         background = np.concatenate(kept) if kept else np.array([])
         T = plan.background_livetime_s
         T_yr = T / (365.25 * 86400.0)
+        keep_above_used = args.keep_above
     print(f"\nbackground: {background.size} triggers above loglr {args.keep_above}, "
           f"max {background.max():.2f}" if background.size else "no background")
 
@@ -265,7 +295,6 @@ def main() -> int:
     # the efficiency was measured at an achieved rate ABOVE the nominal one while the
     # sensitive volume in the same document used the other rounding. Same label, two
     # thresholds, and the efficiency side was the optimistic one.
-    order = np.sort(background)[::-1]
     rows = []
     print(f"\n{'loglr':>9}{'FAR target':>12}{'FAR achieved':>14}{'efficiency':>12}")
     for target in (100.0, 30.0, 10.0, 3.0, 1.0):
@@ -298,21 +327,31 @@ def main() -> int:
     with open(f"{args.out}.json", "w") as fh:
         json.dump({"fold": args.fold, "sigma_norm": norm,
                    "background_livetime_yr": T_yr, "n_lags": n_lags,
+                   "rescored": bool(args.rescore),
+                   "keep_above": keep_above_used,
+                   "cae_checkpoint": bg_checkpoint or None,
                    "n_background": int(background.size),
                    "foreground_gate_applied": args.gate,
                    "thresholds": rows, "efficiency_vs_snr": by_snr}, fh, indent=2)
     # Record which statistic produced this background. A threshold read off it is only
     # meaningful for a foreground scored by the same coefficients and the same per-fold
     # norms, and nothing downstream could previously check that.
-    np.savez_compressed(f"{args.out}_background.npz",
-                        loglr=background.astype(np.float32),
-                        background_livetime_s=T,
-                        model_path=str(args.model) if args.model else "shipped",
-                        # FOREGROUND-only. The LR background loop never sees cnn_hm/lm
-                        # -- the gate is applied to injections and not to slides -- so
-                        # this must not be read as "the background was gated". Named to
-                        # make that impossible to misread downstream.
-                        foreground_gate_applied=bool(args.gate))
+    # Never rewritten under --rescore: a run that skipped the slide loop has no claim
+    # to stamp the provenance of a background it did not compute, and doing so would
+    # relabel a cached background with the rescoring run's model.
+    if not args.rescore:
+        np.savez_compressed(f"{args.out}_background.npz",
+                            loglr=background.astype(np.float32),
+                            background_livetime_s=T,
+                            n_lags=n_lags,
+                            keep_above=args.keep_above,
+                            checkpoint=bg_checkpoint,
+                            model_path=(str(args.model.resolve()) if args.model
+                                        else "shipped"),
+                            # FOREGROUND-only. The LR background loop never sees
+                            # cnn_hm/lm, so this must not be read as "the background was
+                            # gated". Named to make that impossible to misread.
+                            foreground_gate_applied=bool(args.gate))
     np.savez_compressed(f"{args.out}_foreground.npz", loglr=ll.astype(np.float32),
                         keep=keep, network_snr=snr.astype(np.float32))
     print(f"\nwrote {args.out}.json / _background.npz / _foreground.npz")

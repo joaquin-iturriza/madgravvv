@@ -118,14 +118,16 @@ def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> d
     # nothing about which CAE produced the scores they are computed from.
     bg_ck = str(bg["checkpoint"]) if "checkpoint" in bg.files else None
     fg_ck = str(z["checkpoint"]) if "checkpoint" in z.files else None
-    if bg_ck and fg_ck and bg_ck != fg_ck:
+    if bg_ck and fg_ck and Path(bg_ck).name != Path(fg_ck).name:
         raise SystemExit(f"foreground was scored with {fg_ck} and the background with "
                          f"{bg_ck}: different front ends, so the threshold and the "
                          f"efficiency come from different searches")
-    if not (bg_ck and fg_ck):
-        print(f"  WARNING: {'foreground' if not fg_ck else 'background'} predates "
-              f"checkpoint provenance, so the two halves cannot be checked against each "
-              f"other. Re-scan to enable it.")
+    verified = bool(bg_ck and fg_ck)
+    if not verified:
+        absent = [n for n, v in (("background", bg_ck), ("foreground", fg_ck)) if not v]
+        print(f"  WARNING: {' and '.join(absent)} predate checkpoint provenance, so the "
+              f"two halves CANNOT be checked against each other. This run is recorded "
+              f"as unverified; re-run far_lr.py and scan_injections.py to enable it.")
     if "distance_mpc" not in z.files:
         raise SystemExit(f"{inj_path} is not a volumetric campaign; re-run "
                          f"scan_injections.py --distance-max")
@@ -169,6 +171,7 @@ def one_seed(inj_path: Path, far_path: Path, model_path: Path, trials: int) -> d
     w, zs = comoving_weight(d)
 
     out = {"d_max_mpc": d_max, "z_max": float(zs.max()), "n_attempted": n_attempted,
+           "checkpoint_provenance": "verified" if verified else "unverified",
            "v_euclid_gpc3": v_euclid, "weight_range": [float(w.min()), float(w.max())],
            "by_far": {}}
     for target in TARGETS:
@@ -290,7 +293,9 @@ def main() -> int:
           "statistic uses coherence and has no per-detector form.")
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as fh:
-        json.dump({"per_seed": [{k: v for k, v in r.items() if k != "by_far"}
+        prov = sorted({r["checkpoint_provenance"] for r in per_seed})
+        json.dump({"checkpoint_provenance": prov[0] if len(prov) == 1 else prov,
+                   "per_seed": [{k: v for k, v in r.items() if k != "by_far"}
                                 for r in per_seed],
                    "n_seeds": len(per_seed), "trials_factor": trials.value,
                    "mass_frame": "detector",

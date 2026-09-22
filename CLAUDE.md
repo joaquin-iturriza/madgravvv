@@ -27,37 +27,6 @@ is the *operating manual*; `docs/results.tex` is the *lab notebook*.
 
 ---
 
-## Where this runs — projects above sites (2026-09-22; read before anything below)
-
-This repo is one of six projects that can run at **any** of three sites: CC-IN2P3
-(SLURM, V100), Jean Zay (SLURM, V100/A100, **hours limited**) and lxplus (HTCondor).
-The working copy is the **local checkout `~/work/madgrav`**. Nothing is edited on a
-cluster: no sshfs mount, no `scripts/remote.sh`, no `lxplus-run`, no `ssh` by hand.
-Code reaches a site by git, jobs by the `site` tool. **Read `~/work/CLAUDE.md`** for
-the rules and the verbs (`site pick / env / sync / submit / poll / logs / fetch / where`).
-
-- **One branch: `trunk`.** The old per-cluster branches (`ccin2p3`) are retired: they
-  had no commits `trunk` lacks. `main` stays a generated publish artifact where the
-  repo has one.
-- **Site facts live in `sites/sites.yaml`** (paths, scheduler flags, env recipe) and
-  `sites/activate.sh`. Python asks `siteconf` (`siteconf.PROJECT_DIR`,
-  `siteconf.slurm_header(...)`, `siteconf.resolve(cfg)`); every job script starts with
-  `source "$_CCORCH_ROOT/sites/activate.sh"`. **Never hardcode a cluster path**; Hydra
-  data paths are `${oc.env:DATA_DIR}`.
-- **Jean Zay is never picked automatically** — only when the work needs it or the
-  user asks (`--allow-jeanzay`). Over ~10 GPU-hours: confirm first.
-- **Infrastructure checks use `scripts/job_probe.sh`** (10 s), never a training run.
-- **Results:** `site fetch <run>` mirrors tier-0 (metrics, small plots, configs) to
-  `~/.local/share/ccorch/artifacts/madgrav/<run>/`; heavy artefacts stay on the site;
-  `site where <run>` prints both. The registry records the deployed commit of every run.
-- **Never delete anything on a cluster you did not create in the same command.**
-
-Sections below that mention the sshfs mount, `remote.sh` / `lxplus-run`, a per-cluster
-branch, or absolute cluster paths describe the old model and carry a supersession note.
-The AFS/EOS split, the hooks, the science and the conventions are unchanged.
-
----
-
 ## The framing (read first)
 
 Gravitational-wave search is not collider physics, and the differences dictate every
@@ -116,8 +85,8 @@ sweep — never silently pick the conventional value.
 
 This project is built to FA's structure and rules, on purpose: the same person works on
 both, and a second research repo that organises itself differently costs more than it
-buys. FA's dev trunk is its **`jeanzay`** branch — `main` there is a stripped, generated
-publication artifact with no `CLAUDE.md` and no `.claude/`, so read `jeanzay`.
+buys. FA's development branch is **`trunk`** — `main` there is a stripped, generated
+publication artifact with no `CLAUDE.md` and no `.claude/`, so read `trunk`.
 
 What carried over, what was adapted, and what was deliberately left:
 
@@ -135,8 +104,8 @@ What carried over, what was adapted, and what was deliberately left:
 | `.claude/hooks/test_guards.py` | **adopted** | the guards are load-bearing; one of them shipped broken and silent until tested |
 | "canonical run setup — the ONE source of truth" | **adopted** (below) | |
 | A/B protocol, waiting-on-jobs, one-CLAUDE.md, no-AI-attribution, honesty | **adopted** | |
-| FA's execution model (Claude runs *on* Jean Zay) | **replaced** with Fin_ML's local + sshfs model | CC-IN2P3 forbids AI sessions on their machines, so ground rule 0 differs from FA's ground rule 2. This is the one place the two references genuinely conflict, and the cluster's policy decides it |
-| FA's GPU-budget rule (>10 GPU-h → confirm) | **not adopted** | that is a Jean Zay allocation constraint. `lpnhe` on CC-IN2P3 has no hard GPU-hour budget, so ground rule 1 is Fin_ML's "be autonomous, stop only before something ridiculous" |
+| FA's execution model (local checkout, sites reached only through `site`) | **adopted** — the same model for every project | see ground rule 0; the site-specific facts live in `sites/sites.yaml`, not in the code |
+| FA's GPU-budget rule (>10 GPU-h → confirm) | **adopted for Jean Zay only** | it is a Jean Zay allocation constraint. `lpnhe` on CC-IN2P3 has no hard GPU-hour budget, so there ground rule 1 is Fin_ML's "be autonomous, stop only before something ridiculous" |
 | `mlflow_util.py` | **not ported** | FA runs it off by default (`use_mlflow: false`) and Fin_ML dropped it. `summary.json` plus `docs/results.tex` is the record here; a third store would be a fourth place for numbers to disagree |
 | FA's HPO search-space rules (the `lr*(t,D)` surface, 422 sweeps) | **not adopted** | measured on a Lorentz-equivariant transformer fitting amplitudes. The numbers do not transfer to a 250k-parameter conv autoencoder on spectrograms. The *practice* — keep the ranges in one place and narrow them from evidence — is adopted in `sweep/search_space.py`, with the ranges honestly labelled as priors |
 | μP as the default parametrization | **not yet** | Phase 5 proposes muP as a way to make width a cheap HPO axis. The plan itself flags that its tooling is transformer-centric and that at conv widths of 16–128 the effects it corrects are small, so a null result is acceptable. Not baked into the models |
@@ -466,40 +435,44 @@ the Grad-CAM localizer with an explicit localization head.
 
 ## Ground rules
 
-> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/madgrav`, one branch (`trunk`), sites via the `site` tool. Kept for history.
-
-0. **Execution model — run LOCALLY, drive the cluster over SSH (read this first).**
-   CC-IN2P3 policy forbids AI sessions running *on* their machines
-   ([policy](https://doc.cc.in2p3.fr/en/Daily-usage/users.html#ai-and-external-services-at-cnrs)),
-   so the assistant runs on the user's **local machine**, where the project is an
-   **sshfs mount** of the cluster — local `/home/joaquin/mnt/ccin2p3/madgrav` **is**
-   remote `/sps/lpnhe/jiturrizaramirez01/madgrav` (same bytes). Therefore:
-   - **All file work is local, zero SSH:** read/search/edit code, read `runs/**`
-     `summary.json`, **tail logs** (`runs/_logs/*.out` are on the mount) — normal file
-     tools, never ssh.
-   - **Only scheduler/GPU commands cross the wire** (`sbatch`, `squeue`, `sacct`,
-     `scancel`, login-node `pytest`). Keep it minimal and scheduler-shaped. **Never**
-     run the assistant's own reasoning/tooling on the cluster.
-   - **Use the helper:** `scripts/remote.sh <cmd>` runs `<cmd>` from the project dir on
-     the login node (needed for relative `#SBATCH --output`). SSH is multiplexed (alias
-     `ccin2p3`), no per-command re-auth.
-   - **You cannot submit/run GPU/tests from the local shell** (no local SLURM; `.venv/`
-     is the cluster's) — always go through `scripts/remote.sh`.
-   - **If the mount or ssh dies, re-up it yourself.** The helpers (`cluster_status`,
-     `cluster_up`, `cluster_down`, `sshfs_ccin2p3`) live in `~/.bash_aliases` and are
-     **not** in the non-interactive tool shell — source them first:
-     `source ~/.bash_aliases && cluster_status`, then `cluster_up` (idempotent: clears
-     only *dead* mounts). Symptoms: file tools hanging, or "Transport endpoint is not
-     connected". **The one thing you cannot do** is unlock the key
-     (`~/.ssh/cluster_ed25519` is passphrase-protected): if `ssh-add -l` is empty, ask
-     the user to run `! ssh-add ~/.ssh/cluster_ed25519`, then retry.
-1. **Hardware — CC-IN2P3 (SLURM; V100-32GB default, H100-80GB for the biggest runs).**
-   Heavy work goes here via **`scripts/remote.sh sbatch jobs/job_*.sh`**. There is **no
-   hard GPU-hour budget**, so be autonomous: submit the standard single-GPU jobs and
-   seed arrays **without asking** — just report what you ran. Stop and confirm only
-   before a *ridiculous* number of jobs or very long multi-GPU runs, and never launch
-   unbounded submit loops. Inspecting state (`squeue`, `sacct`, logs) is always fine.
-   Always add per-step timing/loss logging so a run is never flying blind.
+0. **Execution model — the project lives above the sites (read this first).**
+   The working copy is the **local checkout `~/work/madgrav`**, and that is the only
+   place code is read or edited. Nothing of the assistant runs on a cluster (CC-IN2P3's
+   [policy](https://doc.cc.in2p3.fr/en/Daily-usage/users.html#ai-and-external-services-at-cnrs)
+   forbids AI sessions on its machines, and the same model is used everywhere): no sshfs
+   mount, no `scripts/remote.sh`, no `ssh` by hand. A cluster is reached only through the
+   `site` tool, and only for scheduler traffic:
+   - **Code moves by git.** `site sync <site> madgrav` pushes the local branch and
+     fast-forwards the site's checkout. Uncommitted work never reaches a cluster.
+   - **Jobs move by `site submit <site|auto> madgrav jobs/<job>.sh`** (it syncs first).
+     `site pick madgrav` says where the next job should go and why — site up, project
+     deployed there, queue pressure, maintenance — run it before submitting; `auto` uses it.
+   - **State comes back by `site poll`, `site logs <run>`, `site fetch <run>` and
+     `site where <run>`.** `site runs` is the registry (every run with its site and the
+     commit that was actually deployed). Read a job's log before saying it ran; a
+     `RUNNING` job with an empty log is not working.
+   - **Environments** are made by `site env <site> madgrav` (checkout + `.venv`, verified).
+   - The three sites, and what differs: **CC-IN2P3** (SLURM, V100-32GB; `--gpus=N`,
+     `--mem` mandatory, at most 5 CPUs per GPU; the strain cache lives there, so it is the
+     default home of this project). **Jean Zay** (SLURM, `itg@v100` / `gpu_p2`; **hours
+     are limited** — it is never picked automatically, only when the work needs it or the
+     user asks for it explicitly, and anything over ~10 GPU-hours is confirmed first;
+     compute nodes have no internet, so data is staged beforehand). **lxplus** (HTCondor;
+     submits only from AFS while code and data sit on EOS; its ssh master is 2FA and is
+     opened by the user, not by you).
+   - **Infrastructure checks use `scripts/job_probe.sh`** (ten seconds: site, host,
+     python, torch, GPU), never a training run.
+   - **Never delete anything on a cluster that you did not create in the same command.**
+   The full rule set and every verb are in `~/work/CLAUDE.md`; this file adds only what is
+   specific to madgrav.
+1. **Hardware — CC-IN2P3 by default (SLURM; V100-32GB, H100-80GB for the biggest runs).**
+   Heavy work goes there via **`site submit ccin2p3 madgrav jobs/job_*.sh`**. There is
+   **no hard GPU-hour budget** on `lpnhe`, so be autonomous: submit the standard
+   single-GPU jobs and seed arrays **without asking** — just report what you ran. Stop
+   and confirm only before a *ridiculous* number of jobs or very long multi-GPU runs, and
+   never launch unbounded submit loops. Inspecting state (`site status`, `site poll`,
+   `site logs`) is always fine. Always add per-step timing/loss logging so a run is never
+   flying blind. The autonomy does **not** extend to Jean Zay (ground rule 0).
 2. **GPU is the calibrated path.** The upstream README is explicit that CPU forward is
    not byte-identical to GPU. Production and background (FAR) runs are GPU-only; the
    harness refuses to start on CPU unless `allow_cpu=true`, which is for smoke tests
@@ -527,39 +500,66 @@ the Grad-CAM localizer with an explicit localization head.
 
 ---
 
-## Paths & hardware
-
-> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/madgrav`, one branch (`trunk`), sites via the `site` tool. Kept for history.
+## Paths & sites
 
 | What | Path |
 |---|---|
-| Project root (on cluster) | `/sps/lpnhe/jiturrizaramirez01/madgrav` |
-| Project root (local, sshfs) | `/home/joaquin/mnt/ccin2p3/madgrav` (== the cluster path; edit/read here) |
-| Python | `.venv/bin/python` (built by `scripts/setup_env.sh`) |
+| Working copy (the only place you edit) | `~/work/madgrav`, branch `trunk` |
+| Site checkouts (git clones, managed by `site`) | `/sps/lpnhe/jiturrizaramirez01/madgrav` (CC-IN2P3), `/lustre/fswork/projects/rech/itg/ulm49ia/madgrav` (Jean Zay), `/eos/user/j/joiturri/madgrav` (lxplus; Condor submits from `/afs/cern.ch/user/j/joiturri/madgrav`) — all from `sites/sites.yaml` |
+| Python | `.venv/bin/python` inside each site checkout, activated by `sites/activate.sh` (see the site table below) |
 | Upstream repo (vendored, read-only) | `.reference/MADGRAV` — `bash scripts/vendor_reference.sh` |
-| Reference repos | `.reference/{MADGRAV,Foundational_Amplitudes}` (read-only). **Note FA's dev trunk is its `jeanzay` branch** — `main` is a stripped published artifact with no `CLAUDE.md` or `.claude/`, so clone or check out `jeanzay` to see the rules this project's `.claude/` is ported from |
-| Strain cache | `data_cache/strain/` (gitignored; ~262 GB for O3a) |
-| Run outputs | `runs/<exp_name>/<run_name>/` (gitignored) |
-| SLURM logs | `runs/_logs/` (on the mount — tail locally, no ssh) |
+| Reference repos | `.reference/{MADGRAV,Foundational_Amplitudes}` (read-only). FA's development branch is `trunk` — `main` is a stripped published artifact with no `CLAUDE.md` or `.claude/`, so check out `trunk` to see the rules this project's `.claude/` is ported from |
+| Strain cache | `$DATA_DIR/strain/` — `data_cache/strain/` under the CC-IN2P3 checkout (gitignored; ~262 GB for O3a). The other sites have no strain yet: stage it before running there |
+| Run outputs | `runs/<exp_name>/<run_name>/` in the site checkout (gitignored); tier-0 (`summary.json`, `config.yaml`, logs, small plots) mirrored home by `site fetch <run>` to `~/.local/share/ccorch/artifacts/madgrav/<run>/` |
+| SLURM logs | `runs/_logs/` on the site — read with `site logs <run>`, or fetched |
 | Curated figures | `figures/` |
 | Formal notes | `docs/results.tex` |
 | The plan | `docs/improvement-plan.md` (gitignored — local only, see above) |
 
-**Cluster — CC-IN2P3 (Lyon):**
+**How a job finds its site.** Every job script starts with
 
-| What | Value |
-|---|---|
-| Scheduler | SLURM |
-| GPU partitions | `gpu_v100` (32 GB, 16 nodes — default) and `gpu_h100` (80 GB, 3 nodes, scarce); interactive variants `gpu_*_interactive` |
-| QOS / account | `--qos=gpu --account=lpnhe` (also entitled to `atlas`) |
-| GRES | `--gres=gpu:v100:1` (or `gpu:h100:1`) |
-| Project dir | `/sps/lpnhe/jiturrizaramirez01` (~400 GB free; **home `/pbs/home` is tiny — keep envs, caches and strain off it**) |
-| Python env | self-contained `.venv/`; build it with `scripts/setup_env.sh`, never by hand. **The torch wheel must ship sm_70 (Volta) or nothing runs on `gpu_v100`** — the default PyPI wheel is CUDA 13, which dropped it; cu124 (torch 2.6) has sm_70 + sm_90. Installing torch from the cu124 index first is **not sufficient**: `mup` pulls `torchvision`, and resolving that from the default index silently replaces the cu124 torch (observed: 2.6.0+cu124 → 2.13.0). So the script installs torch **and torchvision** from cu124, pins both via `PIP_CONSTRAINT` for the project install, and then **fails loudly if `sm_70` is absent from `torch.cuda.get_arch_list()`**. A venv that imports fine on the login node and dies on every V100 job is the failure this guards. |
-| Compute nodes | have internet and mount `/sps` — GWOSC fetches work from a job, but **pre-warm `data_cache/strain` on a login node** so runs only read it; refetching from 30 parallel jobs is slow and antisocial |
-| Access | ssh alias `ccin2p3`, key `~/.ssh/cluster_ed25519` in a boot-persistent agent ⇒ no per-command auth. Wrap scheduler commands in `scripts/remote.sh` |
-| Mount | sshfs with `reconnect` + keepalives; auto-mounted on the first interactive shell per WSL boot. Manual recovery: ground rule 0 |
-| Submit | `scripts/remote.sh sbatch jobs/job_stage1.sh`; H100: `scripts/remote.sh sbatch --partition=gpu_h100 --gres=gpu:h100:1 jobs/job_stage1.sh` |
-| Wait | `scripts/remote.sh 'POLL=30 scripts/wait_for_slurm.sh <jobid>'` (run_in_background) |
+```bash
+_CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
+source "$_CCORCH_ROOT/sites/activate.sh"
+cd "$PROJECT_DIR"
+```
+
+(`$0` is useless under SLURM, which runs a copy of the script out of its spool; `site
+submit` exports `CCORCH_PROJECT_DIR` and `CCORCH_SITE`.) `sites/activate.sh` identifies
+the site, activates its env and exports `PROJECT_DIR`, `DATA_DIR`, `SCRATCH`, `WORK`
+and `SUBMIT_DIR`. Python asks `siteconf` (`siteconf.PROJECT_DIR`, `siteconf.DATA_DIR`,
+`siteconf.slurm_header(...)`, `siteconf.resolve(cfg)`), which reads `sites/sites.yaml` —
+the only file, with `activate.sh`, that names a cluster. **Never hardcode a cluster
+path anywhere else**; Hydra data paths are `${oc.env:DATA_DIR}`.
+
+A job script keeps only the lines that are the job's business: `--job-name`,
+`--cpus-per-task`, `--time`, `--output`/`--error`, arrays, and `--gres=gpu:N` as a plain
+count. Partition, account, qos, `--gpus` versus `--gres`, `--mem` and the CPU ceiling are
+the site's business and are added on the `sbatch` command line by `site submit`
+(CC-IN2P3 rejects a typed `--gres` and a job without `--mem`; Jean Zay rejects `--qos`
+and `--mem`).
+
+**Sites:**
+
+| | CC-IN2P3 (Lyon) | Jean Zay (IDRIS) | lxplus (CERN) |
+|---|---|---|---|
+| Scheduler | SLURM | SLURM | HTCondor |
+| GPUs | `gpu_v100` (32 GB, 16 nodes — default), `gpu_h100` (80 GB, 3 nodes, scarce) | `gpu_p2` V100-32GB on `itg@v100` | shared T4/V100/A100 pool, `+JobFlavour` tiers |
+| Env (`site env <site> madgrav`) | `.venv` from `module load Programming_Languages/anaconda/3.12` (python 3.12, torch 2.6.0+cu124); `scripts/setup_env.sh` is the same recipe by hand | `module load pytorch-gpu/py3/2.6.0` + a thin `--system-site-packages` `.venv` (the module provides torch; the WORK inode quota is nearly full, so no env of its own downloads a torch) | `.venv` from `/usr/bin/python3.11` on EOS, torch from the cu124 index (slow to build: EOS metadata) |
+| Budget | none hard; be autonomous | **limited hours — needed or asked, never by default** | none hard |
+| Compute-node internet | yes, and `/sps` is mounted — GWOSC fetches work from a job, but **pre-warm `data_cache/strain` on a login node** so runs only read it; refetching from 30 parallel jobs is slow and antisocial | **no** — stage strain first | yes |
+| Storage notes | `/sps/lpnhe/jiturrizaramirez01` (~400 GB free; **home `/pbs/home` is tiny — keep envs, caches and strain off it**) | `$WORK` for code and data, `$SCRATCH` for bulk | code and data on EOS, submission files and logs on AFS (Condor will not submit from EOS) |
+
+`site env` installs `pyproject.toml` extras `dev,deep,gw,analysis`, torch **and
+torchvision** from the cu124 index first and pinned via `PIP_CONSTRAINT` for the
+project install. **The torch wheel must ship sm_70 (Volta) or nothing runs on a V100** —
+the default PyPI wheel is CUDA 13, which dropped it; cu124 (torch 2.6) has sm_70 + sm_90.
+Installing torch from the cu124 index first is **not sufficient** on its own: `mup` pulls
+`torchvision`, and resolving that from the default index silently replaces the cu124
+torch (observed: 2.6.0+cu124 → 2.13.0). Hence the pin, and the check that **fails loudly
+if the torch is built for CUDA ≥ 13** or `sm_70` is absent from
+`torch.cuda.get_arch_list()`. A venv that imports fine on the login node and dies on
+every V100 job is the failure this guards.
 
 ---
 
@@ -570,24 +570,30 @@ point, `config/` is the tree, and every field is a CLI override. A run executes
 `init_physics → init_folds → init_data → init_model → train → evaluate → plot` and
 writes to `runs/<exp_name>/<run_name>/`.
 
+Job scripts take Hydra overrides as arguments and are submitted with `site submit`
+(`ccin2p3` by default here — the strain cache is there; `auto` lets `site pick` choose):
+
 ```bash
 # stage 1, upstream objective
-scripts/remote.sh sbatch jobs/job_stage1.sh seed=42
+site submit ccin2p3 madgrav jobs/job_stage1.sh seed=42
 
 # stage 1, masked prediction (Phase 4.1), anisotropic time-slice mask
-scripts/remote.sh sbatch jobs/job_stage1.sh model.objective=masked model.mask_patch=[256,8]
+site submit ccin2p3 madgrav jobs/job_stage1.sh model.objective=masked model.mask_patch=[256,8]
 
 # representation ablation R1 (phase channel)
-scripts/remote.sh sbatch jobs/job_stage1.sh representation=r1_phase
+site submit ccin2p3 madgrav jobs/job_stage1.sh representation=r1_phase
 
 # stage 2 from a stage-1 checkpoint, with an HPO point
-scripts/remote.sh sbatch jobs/job_stage2.sh \
+site submit ccin2p3 madgrav jobs/job_stage2.sh \
   model.init_from=runs/madgrav/<stage1>/models/model_best.pt \
   model.margin=2.5 model.margin_weight=1.5
 
 # three seeds (the normal way to run anything that will be quoted)
-scripts/remote.sh sbatch jobs/job_seeds.sh exp_type=stage1 model.objective=masked
+site submit ccin2p3 madgrav jobs/job_seeds.sh exp_type=stage1 model.objective=masked
 ```
+
+`site submit` syncs the local `trunk` to the site first, so commit before submitting; it
+prints the run id and records the deployed commit.
 
 ### Canonical run setup — the ONE source of truth
 
@@ -621,8 +627,9 @@ as trials accumulate, and say in `docs/results.tex` what narrowed them.
 
 | Tier | What | Wall-clock | Use for |
 |---|---|---|---|
-| smoke | `scripts/remote.sh .venv/bin/python -m pytest tests/` (CPU, login node) | ~30 s | any code change |
-| demo gate | `scripts/remote.sh sbatch jobs/job_demo_gate.sh` | ~1 min | the environment still reproduces the frozen calibration. Measured `7.70 / 0.994 / 0.954 / RECOVERED`. **Re-run after any environment change** — it is the only thing standing between a torch upgrade and silently uncalibrated FARs |
+| probe | `site submit <site> madgrav scripts/job_probe.sh` | ~10 s | is the site path itself working (env activates, GPU visible). The only job for infrastructure checks |
+| smoke | `python -m pytest tests/` in the local checkout (CPU) | ~30 s | any code change |
+| demo gate | `site submit ccin2p3 madgrav jobs/job_demo_gate.sh` | ~1 min | the environment still reproduces the frozen calibration. Measured `7.70 / 0.994 / 0.954 / RECOVERED`. **Re-run after any environment change** — it is the only thing standing between a torch upgrade and silently uncalibrated FARs |
 | short train | `jobs/job_stage1.sh training.iterations=2000` | ~15 min | does the loss move, is the shape right |
 | full train | `jobs/job_stage1.sh` | ~4–8 h | a candidate worth measuring |
 | seed array | `jobs/job_seeds.sh` | full-train × 3 in parallel | anything that will be quoted |
@@ -660,8 +667,9 @@ the gate invalidates every previously generated slide.
 | `src/madgrav_ml/sweep/` | fold-aware HPO: `search_space.py` (ranges + reasoning), `runner.py` (every trial inside `FoldGuard.hpo()`, logged with its fold). FA's DyHPO surrogate drops into the `Sampler` protocol |
 | `src/madgrav_ml/plotting/` | `style.save_figure` (both formats, one call) and the standard figure set |
 | `config/` | Hydra tree: `default`, `model/`, `data/`, `representation/`, `local/`, `param_budget.yaml` |
-| `scripts/` | `remote.sh`, `wait_for_slurm.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py`, `fold_worktree.sh`, `publish_main.sh` |
-| `jobs/` | CC-IN2P3 SLURM scripts |
+| `sites/` | `sites.yaml` (per-site paths, scheduler flags, env recipe) and `activate.sh` (runtime site resolution); `siteconf.py` at the root reads them |
+| `scripts/` | `job_probe.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py`, `fold_worktree.sh`, `publish_main.sh` (plus `remote.sh` / `wait_for_slurm.sh`, kept only for the `slurm_waiter_guard` hook — never call them yourself) |
+| `jobs/` | SLURM job scripts, site-agnostic: job-owned `#SBATCH` lines only, the `sites/activate.sh` preamble, Hydra overrides passed through |
 | `tests/` | pytest suite (fold guard, FAR arithmetic, efficiency, budget, sweep leakage, plotting, vendored weights, **representation fidelity vs upstream**, injections) |
 | `docs/results.tex` | the lab notebook; `docs/improvement-plan.md` (gitignored) the plan |
 
@@ -782,7 +790,7 @@ what it already cost.
 | `plot_guard` | Bash/Write | configuring a run with plotting off. The plots are the diagnostics no scalar shows; a run that trained fine without them has to be repeated |
 | `figure_pair_guard` | Stop | a figure written this session existing in only one of `.png`/`.pdf` |
 | `worktree_fold_guard` | Bash | removing a worktree whose gitignored results — including `fold_audit.jsonl` and `summary.json` — exist nowhere else. Fold with `scripts/fold_worktree.sh` first |
-| `slurm_waiter_guard` | Stop | ending a turn with jobs queued and no background waiter. Checks via `scripts/remote.sh` and **fails open** on any ssh problem |
+| `slurm_waiter_guard` | Stop | ending a turn with jobs queued and no background waiter. Checks the CC-IN2P3 queue (through `scripts/remote.sh`, its one remaining use) and **fails open** on any ssh problem |
 | `block_memory`, `worktree_guard`, `commit_checkpoint`, `auto_push` | — | persistent memory, trunk-edit reminder, the commit checkpoint, the push |
 
 `python3 .claude/hooks/test_guards.py` is the self-test for all of the above, and it is
@@ -803,19 +811,18 @@ the runtime check in `param_budget.py`.
 
 ## Waiting on jobs (always background, never hand-poll)
 
-- **Submit + wait, all over ssh:** capture the id, then launch the waiter in the
-  background (one `run_in_background` ssh holding a cheap remote squeue loop):
+- **Submit, then wait in the background:** `site submit` prints the run id; poll it
+  from a backgrounded loop with a real interval, never from repeated tool calls:
   ```
-  jid=$(scripts/remote.sh sbatch --parsable jobs/job_stage1.sh)
-  scripts/remote.sh "POLL=30 scripts/wait_for_slurm.sh $jid"   # run_in_background
+  site submit ccin2p3 madgrav jobs/job_stage1.sh seed=42     # -> run madgrav-ccin2p3-<id>
+  until site poll madgrav-ccin2p3-<id> | grep -qE 'COMPLETED|FAILED|CANCELLED|TIMEOUT'; do sleep 60; done   # run_in_background
   ```
-  `wait_for_slurm.sh` blocks cheaply until the job(s) leave the queue, then prints
-  final `sacct` state/exit/elapsed and a tail of each log. No id ⇒ waits on all your
-  jobs. Inspecting state is always fine and never needs confirmation.
-- **Reading the log is a LOCAL file op, no ssh:** SLURM `--output` lands in
-  `runs/_logs/*.out` on the mount, so tail it with normal file tools while the job
-  runs. (If the mount lags, `scripts/remote.sh tail -n 50 runs/_logs/<file>` is the
-  fallback.)
+  `site poll` with no argument refreshes every unfinished run. Inspecting state is
+  always fine and never needs confirmation.
+- **Read the log through the tool:** `site logs <run>` tails the job's SLURM output on
+  the site; `site fetch <run>` brings `summary.json`, `config.yaml`, logs and small plots
+  home under `~/.local/share/ccorch/artifacts/madgrav/<run>/` (heavy artefacts stay put;
+  `site where <run>` prints both locations). A finished job is one whose log says so.
 
 ---
 
@@ -889,11 +896,10 @@ the runtime check in `param_budget.py`.
   `seed=None` is the non-repeating training mode.
 - **GPS-grouped folds, never random.** Adjacent segments share detector state; a random
   split makes the evaluation fold a near-copy of the training fold.
-- **Go easy on `find` and recursive `grep` over the tree.** This is an sshfs mount, so a
-  metadata-heavy walk pays network latency per entry — FA has the same rule for Lustre
-  and it bites harder here. Prefer `ls`, targeted `grep` and direct paths. Never walk
-  `data_cache/`, `.venv/` or `.reference/`; `runs/` grows without bound. (This is also
-  why `review_backlog.sh` caches its git counts: `gate` runs on every edit.)
+- **Go easy on `find` and recursive `grep` over the tree.** Never walk `data_cache/`,
+  `.venv/` or `.reference/`; `runs/` grows without bound. Prefer `ls`, targeted `grep`
+  and direct paths. (This is also why `review_backlog.sh` caches its git counts: `gate`
+  runs on every edit.)
 
 - **Guard against zero-variance and empty bins.** An efficiency bin with no injections
   is `nan`, not zero; a Wilson interval at k=0 is not zero-width. Both are handled —
@@ -903,20 +909,19 @@ the runtime check in `param_budget.py`.
 
 ## Git & worktree workflow
 
-> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/madgrav`, one branch (`trunk`), sites via the `site` tool. Kept for history.
-
 Development-trunk + generated-canonical model, as in `.reference/Foundational_Amplitudes`'
 sibling projects.
 
 Remote: `origin https://github.com/joaquin-iturriza/madgravvv.git` (**public** — see
 rule 4 below before adding a file).
 
-**Branches** (you are on **`ccin2p3`** — the develop-and-run branch for this cluster)
-- **`ccin2p3`** — the development and working branch. Holds the whole project: core
+**Branches** (you are on **`trunk`** — the one development branch, for every site)
+- **`trunk`** — the development and working branch. Holds the whole project: core
   (`src/`, `config/`, `run.py`, `pyproject.toml`, `CLAUDE.md`, `.gitignore`) plus the
-  dev-only dirs (`tests/`, `docs/`, `figures/`, `scripts/`, `jobs/`, `.claude/`), with
-  the CC-IN2P3 job-script and path overrides baked in. Worktrees branch off it; the
-  Stop hook auto-pushes it.
+  dev-only dirs (`tests/`, `docs/`, `figures/`, `scripts/`, `jobs/`, `sites/`,
+  `.claude/`). It contains nothing site-specific outside `sites/`; the same commit is
+  what every site checkout is fast-forwarded to by `site sync`. Worktrees branch off it;
+  the Stop hook auto-pushes it.
 - **`main`** — the minimal-core **generated build artifact**, regenerated by
   `scripts/publish_main.sh` from its `PUBLIC_PATHS` allowlist (`run.py`, `src/`,
   `config/`, `tests/`, `pyproject.toml`, `README.md`). It is what gets pointed at in the
@@ -924,23 +929,25 @@ rule 4 below before adding a file).
   evaluation harness, without our cluster paths, SLURM scripts, reviewer config or lab
   notebook. `tests/` is included on purpose — it is what shows the fold discipline and
   the C2 budget are enforced rather than asserted. **Never edit `main` by hand and never
-  merge `ccin2p3 -> main`**; to change what is public, edit the allowlist and republish.
+  merge `trunk -> main`**; to change what is public, edit the allowlist and republish.
   The auto-push hook excludes it.
+- **`ccin2p3`** — the former per-cluster branch. It still exists on GitHub but is
+  retired: it has no commit that `trunk` lacks. Do not check it out, merge it or push to it.
 
 **Working rules**
-1. **Do work on `ccin2p3`** (or a feature branch off it). **Finish a unit of work →
+1. **Do work on `trunk`** (or a feature branch off it). **Finish a unit of work →
    commit it, without asking and without waiting to be told** — small, frequent,
    clearly-messaged commits beat big dumps. This overrides any generic "commit only
    when asked". The Stop-checkpoint hook blocks a turn that ends with uncommitted
    changes, so the checkpoint is enforced. **Author every commit as the user** (ground
    rule #5).
 2. **Open a worktree for new work by default, always INSIDE the repo:**
-   `git worktree add worktrees/wt-<feat> -b <feat> ccin2p3`, implement and verify there,
+   `git worktree add worktrees/wt-<feat> -b <feat> trunk`, implement and verify there,
    merge back, `git worktree remove` it. Never `../wt-<feat>` or any path outside the
    project root — `worktrees/` is gitignored, so parallel experiments cannot clobber the
-   trunk checkout, and on this sshfs mount a sibling directory would land outside the
-   project on the cluster entirely. Quick standalone edits on the trunk are fine (the
-   guard hook is advisory).
+   trunk checkout. Quick standalone edits on the trunk are fine (the guard hook is
+   advisory). A worktree's branch reaches a site only once merged into `trunk` and
+   synced; jobs run against the deployed `trunk` commit, which `site runs` records.
    **Merging brings back the CODE and nothing else.** `runs/` and `figures/` are
    gitignored, so a worktree's run directories, predictions, checkpoints and — the one
    that matters — its `fold_audit.jsonl` live only inside it and are destroyed by
@@ -954,7 +961,7 @@ rule 4 below before adding a file).
    permission to push. The hook no-ops safely until then.
 4. **Visibility caveat.** `origin` is a single **public** GitHub repo, and a repo's
    visibility covers *all* its branches. Stripping `main`'s tree via `PUBLIC_PATHS`
-   controls what a reader lands on, **not** what they can reach: `ccin2p3` is equally
+   controls what a reader lands on, **not** what they can reach: `trunk` is equally
    public, so `jobs/`, `.claude/` and `docs/results.tex` are readable regardless. Anything
    that must actually stay private has to be **gitignored** — as `docs/improvement-plan.md`
    is, because it carries the collaboration strategy about the upstream author — or live

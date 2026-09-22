@@ -3,7 +3,7 @@
 #
 # Why: the git workflow says push as work lands; relying on the model to remember
 # (and not ask) is unreliable. This makes it deterministic. It only pushes work that
-# is ALREADY COMMITTED — it never creates commits. The `ccin2p3` dev trunk and any
+# is ALREADY COMMITTED — it never creates commits. The `trunk` dev trunk and any
 # feature branches get pushed; `main` is EXCLUDED (it is a generated build artifact,
 # pushed only by scripts/publish_main.sh). No-ops safely until an `origin` remote and
 # an upstream exist. Failures are non-fatal (exit 0) so it never blocks -- but they print

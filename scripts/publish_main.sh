@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
 # publish_main.sh — regenerate the public `main` branch as a curated subset of the
-# `ccin2p3` development trunk, then push it. Ported from Foundational_Amplitudes.
+# `trunk` development trunk, then push it. Ported from Foundational_Amplitudes.
 #
-# `main` is a BUILD ARTIFACT of `ccin2p3`: never edit it by hand and never merge
+# `main` is a BUILD ARTIFACT of `trunk`: never edit it by hand and never merge
 # `ccin2p3 -> main`. To change what is public, edit the PUBLIC_PATHS allowlist below and
 # re-run. Anything not in the allowlist is removed from `main`; everything in it is
 # synced from the trunk. History on `main` is preserved (each publish is a new commit).
@@ -15,7 +15,7 @@
 #
 # VISIBILITY CAVEAT (inherited from FA, and it bites here). A single GitHub repo shares
 # visibility across ALL branches. Stripping `main`'s tree does NOT hide anything: the
-# `ccin2p3` trunk is equally public, so `jobs/`, `.claude/` and `docs/results.tex` are
+# `trunk` trunk is equally public, so `jobs/`, `.claude/` and `docs/results.tex` are
 # readable by anyone regardless of this allowlist. The allowlist controls what a reader
 # lands on, not what they can reach. Anything that must actually stay private has to be
 # gitignored (as `docs/improvement-plan.md` is) or live in a separate repo.
@@ -24,7 +24,7 @@
 #
 set -euo pipefail
 
-SRC="ccin2p3"          # development trunk (source of truth)
+SRC="trunk"          # development trunk (source of truth)
 DST="main"             # public branch (generated)
 PUSH=1
 [[ "${1:-}" == "--no-push" ]] && PUSH=0

@@ -1,6 +1,10 @@
 # Per-site facts for this project. THE ONLY FILE (with sites/activate.sh)
 # THAT NAMES A CLUSTER. Read by siteconf.py; expanded into ${PROJECT_DIR} etc.
 ccin2p3:
+  env:
+    kind: venv
+    python: module load Programming_Languages/anaconda/3.12
+    torch_index: https://download.pytorch.org/whl/cu124
   project_dir: /sps/lpnhe/jiturrizaramirez01/madgrav
   sweep_dir:   /sps/lpnhe/jiturrizaramirez01/madgrav/sweeps
   scratch:     /sps/lpnhe/jiturrizaramirez01/tmp
@@ -18,6 +22,10 @@ ccin2p3:
     account:   lpnhe
     mem_per_cpu: 2G
 jeanzay:
+  env:
+    kind: venv
+    python: module load pytorch-gpu/py3/2.6.0
+    system_site_packages: true
   project_dir: /lustre/fswork/projects/rech/itg/ulm49ia/madgrav
   sweep_dir:   /lustre/fswork/projects/rech/itg/ulm49ia/madgrav/sweeps
   scratch:     /lustre/fsn1/projects/rech/itg/ulm49ia
@@ -32,6 +40,10 @@ jeanzay:
     partition: prepost
     account:   itg@v100
 lxplus:
+  env:
+    kind: venv
+    python_bin: /usr/bin/python3.11
+    torch_index: https://download.pytorch.org/whl/cu124
   project_dir: /eos/user/j/joiturri/madgrav
   sweep_dir:   /afs/cern.ch/user/j/joiturri/madgrav/sweeps   # AFS: condor submits + fcntl locks
   submit_dir:  /afs/cern.ch/user/j/joiturri/madgrav

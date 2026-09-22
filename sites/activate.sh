@@ -23,6 +23,7 @@ case "$CCORCH_SITE" in
     export SUBMIT_DIR="${SUBMIT_DIR:-/sps/lpnhe/jiturrizaramirez01/madgrav}"
     ;;
   jeanzay)
+    module load pytorch-gpu/py3/2.6.0 2>/dev/null || true
     source "$PROJECT_DIR/.venv/bin/activate"
     export WORK="${WORK:-/lustre/fswork/projects/rech/itg/ulm49ia}"
     export SCRATCH="${SCRATCH:-/lustre/fsn1/projects/rech/itg/ulm49ia}"

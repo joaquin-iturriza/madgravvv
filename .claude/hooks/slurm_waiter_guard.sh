@@ -33,23 +33,26 @@ jobs=$(timeout 30 site runs --project madgrav --limit 100 2>/dev/null \
        | grep -viE 'prebuild' || true)
 [ -z "$jobs" ] && exit 0
 
-# A waiter alive? (a background `site poll` loop, or the on-site wait_for_slurm.sh)
-if pgrep -f "site poll|wait_for_slurm.sh" >/dev/null 2>&1; then
-  exit 0
-fi
+# A waiter alive FOR THESE RUNS? Only a `site poll` whose command line names the
+# run id counts (another session's or project's poll proves nothing), or a run
+# listed in .claude/.slurm_monitor_jobs by a Monitor, or the on-site waiter.
+MON="$REPO/.claude/.slurm_monitor_jobs"
+unwatched=""
+for rid in $(awk '{print $1}' <<<"$jobs"); do
+  if pgrep -f "site poll.*$rid" >/dev/null 2>&1 \
+     || pgrep -f "wait_for_slurm.sh.*$(awk -v r="$rid" '$1==r {print $2}' <<<"$jobs")" >/dev/null 2>&1 \
+     || { [ -f "$MON" ] && grep -qx "$rid" "$MON"; }; then
+    continue
+  fi
+  unwatched="$unwatched $rid"
+done
+[ -z "$unwatched" ] && exit 0
+jobs=$(awk -v u=" $unwatched " 'index(u, " "$1" ")' <<<"$jobs")
 # Or a Monitor-tool watcher: on this WSL2 laptop Claude Code stops background Bash tasks
 # within minutes ("low memory" with 6 GB free), so multi-hour jobs are watched with a
 # persistent Monitor instead. It has no process name to pgrep, so arming one records the
 # watched job ids in .claude/.slurm_monitor_jobs (one per line); every queued job must be
 # listed there. Remove or rewrite the file when the watch ends.
-MON="$REPO/.claude/.slurm_monitor_jobs"
-if [ -f "$MON" ]; then
-  unlisted=""
-  for j in $(awk '{print $1}' <<<"$jobs"); do
-    grep -qx "$j" "$MON" || unlisted="$unlisted $j"
-  done
-  [ -z "$unlisted" ] && exit 0
-fi
 
 n=$(printf '%s\n' "$jobs" | wc -l | tr -d ' ')
 {

@@ -39,7 +39,7 @@ try: print(json.load(sys.stdin).get("tool_input",{}).get("command",""))
 except Exception: print("")' 2>/dev/null)
 [ -z "$cmd" ] && exit 0
 
-printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])(sbatch|site +submit)([^[:alnum:]_]|$)' || exit 0
+printf '%s' "$cmd" | grep -qE '(^|[;&|(]|\$\()[[:space:]]*(sbatch|site +submit)([^[:alnum:]_]|$)' || exit 0
 
 # Hyperparameters. Deliberately EXCLUDES run-design and ablation axes (seed, iterations,
 # model.objective, representation, data.source) — arrays over those are legitimate.

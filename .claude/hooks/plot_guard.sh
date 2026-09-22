@@ -71,7 +71,7 @@ if [ "$tool" = "bash" ]; then
   # Only a real run: run.py directly, or an sbatch of a script that carries the flag.
   if printf '%s' "$text" | grep -qE 'run\.py'; then
     :
-  elif printf '%s' "$text" | grep -qE '(^|[^[:alnum:]_])(sbatch|site +submit)([^[:alnum:]_]|$)'; then
+  elif printf '%s' "$text" | grep -qE '(^|[;&|(]|\$\()[[:space:]]*(sbatch|site +submit)([^[:alnum:]_]|$)'; then
     for s in $(printf '%s' "$text" | tr ' \t\n' '\n\n\n' | grep -E '\.sh$' || true); do
       p="$s"; [ -f "$p" ] || p="$REPO/$s"; [ -f "$p" ] || continue
       text="$text

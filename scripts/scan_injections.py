@@ -16,7 +16,7 @@ runs on, and HPO_BG is neither fitted to nor selected against.
 Stores per-detector scores rather than a net sigma, so the normalisation can be applied
 downstream from the background's own fit instead of being baked in here.
 
-  scripts/remote.sh sbatch jobs/job_scan_injections.sh \
+  site submit <site> madgrav jobs/job_scan_injections.sh -- \
       --checkpoint runs/madgrav/<run>/models/model_best.pt --n-injections 4000
 """
 

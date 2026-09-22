@@ -6,7 +6,7 @@ and the coincident injection set says what fraction of sources clear it. Both we
 through the same tiling, the same model and the same ranking statistic, which is the
 only thing that makes the pairing legitimate.
 
-  scripts/remote.sh .venv/bin/python scripts/efficiency_at_far.py
+  site run <site> madgrav -- python scripts/efficiency_at_far.py
 """
 
 from __future__ import annotations

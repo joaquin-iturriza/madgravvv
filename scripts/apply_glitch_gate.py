@@ -13,7 +13,7 @@ Both legs are cropped at the attention peak of the H1 leg, so the same L1 window
 through a different lag is a different input. Windows are deduplicated (the loud tail is
 a handful of glitches seen many times) but crops are not.
 
-  scripts/remote.sh sbatch jobs/job_gate.sh --background data_cache/background --top 4000
+  site submit <site> madgrav jobs/job_gate.sh -- --background data_cache/background --top 4000
 """
 
 from __future__ import annotations

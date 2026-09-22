@@ -16,7 +16,7 @@ Coherence is a feature here rather than a veto, so it has to be evaluated at eve
 point of every lag rather than only on loud triggers. That is what the restricted-lag
 matrix product in `eval/coherence.py` is for.
 
-  scripts/remote.sh sbatch jobs/job_lr.sh --background data_cache/background \
+  site submit <site> madgrav jobs/job_lr.sh -- --background data_cache/background \
       --foreground data_cache/injections/foreground.npz --out runs/_checks/lr
 """
 

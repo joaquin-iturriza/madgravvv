@@ -7,7 +7,7 @@ conclusion (the volume is limited by training stochasticity, the rate LABEL by
 background livetime) depends on seeing them side by side. A table of three intervals per
 row states that; a figure shows it.
 
-  scripts/remote.sh .venv/bin/python scripts/plot_vt.py
+  site run <site> madgrav -- python scripts/plot_vt.py
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ signal lowers the threshold and wins. The question cannot be answered from the p
 fractions alone, so this measures the end quantity -- efficiency at fixed FAR -- under
 each channel definition, everything else held identical.
 
-  scripts/remote.sh .venv/bin/python scripts/veto_ablation.py --n-lags 2000
+  site run <site> madgrav -- python scripts/veto_ablation.py --n-lags 2000
 """
 
 from __future__ import annotations

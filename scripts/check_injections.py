@@ -10,7 +10,7 @@ This exists because "the loss went down" is not evidence that an injection campa
 correct. A wrong LAL epoch, a dropped antenna factor or a mis-scaled amplitude all
 produce a stage-2 run that trains to a plausible curve on tiles containing nothing.
 
-  scripts/remote.sh .venv/bin/python scripts/check_injections.py
+  site run <site> madgrav -- python scripts/check_injections.py
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
 # scripts/remote.sh, in the background:
 #
 #   jid=$(scripts/remote.sh sbatch --parsable jobs/job_stage1.sh)
-#   scripts/remote.sh "POLL=30 scripts/wait_for_slurm.sh $jid"    # run_in_background
+#   site run <site> madgrav -- POLL=30 scripts/wait_for_slurm.sh $jid    # run_in_background
 #
 # With no job id it waits on all of the caller's jobs. Never poll this from the
 # assistant side in a loop of tool calls — that is what this script exists to avoid.

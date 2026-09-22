@@ -27,7 +27,7 @@ Segments are processed one at a time and many windows drawn from each, rather th
 sampling segments at random: a segment is 236 MB and a random draw over 56 of them misses
 the reader's cache almost every time, which measured 1.7 s per window in loading alone.
 
-    scripts/remote.sh sbatch jobs/job_build_tiles.sh
+    site submit <site> madgrav jobs/job_build_tiles.sh
 """
 
 from __future__ import annotations

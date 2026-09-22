@@ -12,7 +12,7 @@ shown a crop outside its own band. LM reads 50-500 Hz, so every burst in this po
 lies inside its band, and it degrades anyway. Only the second is evidence that the
 supervised components prefer a waveform morphology.
 
-  scripts/remote.sh .venv/bin/python scripts/plot_out_of_family.py
+  site run <site> madgrav -- python scripts/plot_out_of_family.py
 """
 
 from __future__ import annotations

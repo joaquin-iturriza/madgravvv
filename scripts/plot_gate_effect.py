@@ -7,7 +7,7 @@ fraction of injections above it. Nothing is quoted at a rate the background cann
 support -- each curve simply stops where its survivors run out, which is the honest end
 of the measurement and, for the gated pipeline, the interesting one.
 
-  scripts/remote.sh .venv/bin/python scripts/plot_gate_effect.py
+  site run <site> madgrav -- python scripts/plot_gate_effect.py
 """
 
 from __future__ import annotations

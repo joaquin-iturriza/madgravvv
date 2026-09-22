@@ -10,7 +10,7 @@ distributed stage-2 checkpoint are not the same object, and a sign reversal betw
 them is expected, not anomalous. This becomes the Section 3.4 comparison only once the
 margin fine-tune has been reproduced.
 
-  scripts/remote.sh .venv/bin/python scripts/compare_front_ends.py \
+  site run <site> madgrav -- python scripts/compare_front_ends.py \
       --checkpoint runs/madgrav/<run>/models/model_best.pt
 """
 

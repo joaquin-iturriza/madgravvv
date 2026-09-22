@@ -19,7 +19,7 @@ The ranking statistic is upstream's, from `MassiveEventPipeline._fullmag`:
 
 the SUM over sqrt(2), not the quadrature sum.
 
-  scripts/remote.sh .venv/bin/python scripts/far_curve.py --n-lags 2000
+  site run <site> madgrav -- python scripts/far_curve.py --n-lags 2000
 """
 
 from __future__ import annotations

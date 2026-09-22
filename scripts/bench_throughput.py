@@ -11,7 +11,7 @@ arithmetic. Larger batches trade that away, up to two limits: memory, and the po
 which larger batches stop helping optimisation. The first is measured here; the second
 is why the recommendation is the knee rather than the maximum.
 
-  scripts/remote.sh sbatch jobs/job_bench.sh
+  site submit <site> madgrav jobs/job_bench.sh
 """
 
 from __future__ import annotations

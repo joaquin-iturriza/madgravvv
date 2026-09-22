@@ -10,7 +10,7 @@ Reports the full range rather than only a standard deviation. With three seeds a
 itself a noisy estimate, and the honest statement to a reader is "these three runs landed
 between A and B".
 
-  scripts/remote.sh .venv/bin/python scripts/baseline_seeds.py \
+  site run <site> madgrav -- python scripts/baseline_seeds.py \
       --runs 42:runs/_checks/far_curve:data_cache/injections/foreground.npz ...
 """
 

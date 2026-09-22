@@ -6,7 +6,7 @@ compare two statistics that live on different scales. Everything else is identic
 same background segments, the same injection parameters, the same vetoes, the same
 slide plan.
 
-  scripts/remote.sh .venv/bin/python scripts/compare_efficiency.py
+  site run <site> madgrav -- python scripts/compare_efficiency.py
 """
 
 from __future__ import annotations

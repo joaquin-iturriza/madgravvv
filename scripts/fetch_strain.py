@@ -3,7 +3,7 @@
 
 Run it as a SLURM job on the `htc` CPU partition:
 
-    scripts/remote.sh sbatch jobs/job_fetch_strain.sh
+    site submit <site> madgrav jobs/job_fetch_strain.sh
 
 NOT on a login node, despite it being a download. A full fetch is an hour or more of
 wall clock, and a login node killed ours partway through with no message -- the log

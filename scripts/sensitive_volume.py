@@ -20,7 +20,7 @@ from each injection's own luminosity distance. At 5 Gpc the redshift is near 0.8
 two disagree by more than a factor of two, so the Euclidean figure is reported only
 because it is what the sampling assumed, and the comoving one is the number to quote.
 
-  scripts/remote.sh .venv/bin/python scripts/sensitive_volume.py \
+  site run <site> madgrav -- python scripts/sensitive_volume.py \
       --injections data_cache/injections/vol.npz --far-curve runs/_checks/clean_cbc_s42
 """
 

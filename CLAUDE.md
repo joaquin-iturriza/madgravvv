@@ -530,7 +530,8 @@ the site, activates its env and exports `PROJECT_DIR`, `DATA_DIR`, `SCRATCH`, `W
 and `SUBMIT_DIR`. Python asks `siteconf` (`siteconf.PROJECT_DIR`, `siteconf.DATA_DIR`,
 `siteconf.slurm_header(...)`, `siteconf.resolve(cfg)`), which reads `sites/sites.yaml` —
 the only file, with `activate.sh`, that names a cluster. **Never hardcode a cluster
-path anywhere else**; Hydra data paths are `${oc.env:DATA_DIR}`.
+path anywhere else**. Data is addressed relative to `PROJECT_DIR` (`data_cache/...`),
+the directory `activate.sh` also exports as `DATA_DIR`; no config or script names a site.
 
 A job script keeps only the lines that are the job's business: `--job-name`,
 `--cpus-per-task`, `--time`, `--output`/`--error`, arrays, and `--gres=gpu:N` as a plain

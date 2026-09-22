@@ -1,51 +1,55 @@
 #!/usr/bin/env bash
 # Stop hook — refuse to end a turn with SLURM jobs in flight and no background waiter.
 #
-# Ported from Foundational_Amplitudes. CLAUDE.md ("Waiting on jobs") says: submit, then
-# launch the waiter with run_in_background so the harness re-invokes you exactly once
-# when the jobs finish. It explicitly forbids promising "I'll report when they land"
-# without a mechanism. The model there submitted two sweeps and did exactly that — no
-# waiter, just a promise. That silently drops the result: the turn ends, nothing
-# re-invokes anyone, and the user has to notice and prod.
+# Why: CLAUDE.md ("Waiting on jobs — always background, never hand-poll") says: submit, then
+# launch `scripts/wait_for_slurm.sh <jids>` with run_in_background so the harness re-invokes
+# me exactly once when the jobs finish. It explicitly forbids promising "I'll report when they
+# land" WITHOUT a mechanism. The model (me) submitted two 16-trial sweeps and then did exactly
+# that — no waiter, just a promise. That silently drops the result on the floor: the turn ends,
+# nothing re-invokes me, and the user has to notice and prod.
 #
-# ADAPTED FOR THIS PROJECT'S EXECUTION MODEL. FA runs on the cluster, so it can call
-# squeue directly. Here the assistant runs locally and drives SLURM over ssh, so the
-# check has to go through scripts/remote.sh — one multiplexed round-trip per Stop.
-# It FAILS OPEN on any ssh problem: a hook that blocks every turn because the mount or
-# the network is down is worse than the miss it prevents.
-#
-# The waiter itself is a local `ssh ... wait_for_slurm.sh` process, so pgrep on the
-# local side is the right place to look for it.
+# Rule enforced: if the site registry shows any of my runs queued/running and no
+# wait_for_slurm.sh process is alive, block the Stop and make me launch the waiter.
 #
 # Escape hatch: `touch .claude/.no_waiter_needed` to allow one Stop with jobs in flight
-# (deliberate fire-and-forget, e.g. the user said they will check themselves).
-# Auto-cleared on use.
+# (deliberate fire-and-forget, e.g. the user said they'll check themselves). Auto-cleared.
 set -uo pipefail
-REPO="$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)"
-[ -e "${REPO:-/nonexistent}/.git" ] || REPO="$(git rev-parse --show-toplevel 2>/dev/null)"
-[ -z "$REPO" ] && exit 0
+REPO="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 BYPASS="$REPO/.claude/.no_waiter_needed"
-REMOTE="$REPO/scripts/remote.sh"
-
-# Already blocked once in this stop sequence -> let it through (a Stop hook cannot block
-# twice, and this is also the deliberate-pause escape).
-input="$(cat 2>/dev/null || true)"
-case "$input" in *'"stop_hook_active"'*true*) exit 0 ;; esac
 
 if [ -f "$BYPASS" ]; then
   rm -f "$BYPASS"
   exit 0
 fi
 
-# A waiter alive locally? (the backgrounded ssh holding wait_for_slurm.sh)
-pgrep -f "wait_for_slurm.sh" >/dev/null 2>&1 && exit 0
-
-[ -x "$REMOTE" ] || exit 0
-
-# Fail open: a timeout, a dead mount or a dropped key must not block the turn.
-jobs=$(timeout 25 "$REMOTE" 'squeue --me -h -o "%i %j %T"' 2>/dev/null) || exit 0
-jobs=$(printf '%s\n' "$jobs" | sed '/^[[:space:]]*$/d')
+# Jobs live on three sites now; the `site` registry is the one place that knows
+# them all. Refresh it (bounded), then list this project's non-terminal runs as
+# "<run-id> <job> <STATE>". If the tool is missing or the sites are unreachable,
+# fail open rather than hang the Stop.
+command -v site >/dev/null 2>&1 || exit 0
+timeout 90 site poll >/dev/null 2>&1 || true
+jobs=$(timeout 30 site runs --project madgrav --limit 100 2>/dev/null \
+       | awk '$4 ~ /^(SUBMITTED|PENDING|RUNNING|IDLE|CONFIGURING|UNKNOWN)$/ {print $1, $6, $4}' \
+       | grep -viE 'prebuild' || true)
 [ -z "$jobs" ] && exit 0
+
+# A waiter alive? (a background `site poll` loop, or the on-site wait_for_slurm.sh)
+if pgrep -f "site poll|wait_for_slurm.sh" >/dev/null 2>&1; then
+  exit 0
+fi
+# Or a Monitor-tool watcher: on this WSL2 laptop Claude Code stops background Bash tasks
+# within minutes ("low memory" with 6 GB free), so multi-hour jobs are watched with a
+# persistent Monitor instead. It has no process name to pgrep, so arming one records the
+# watched job ids in .claude/.slurm_monitor_jobs (one per line); every queued job must be
+# listed there. Remove or rewrite the file when the watch ends.
+MON="$REPO/.claude/.slurm_monitor_jobs"
+if [ -f "$MON" ]; then
+  unlisted=""
+  for j in $(awk '{print $1}' <<<"$jobs"); do
+    grep -qx "$j" "$MON" || unlisted="$unlisted $j"
+  done
+  [ -z "$unlisted" ] && exit 0
+fi
 
 n=$(printf '%s\n' "$jobs" | wc -l | tr -d ' ')
 {
@@ -57,9 +61,10 @@ n=$(printf '%s\n' "$jobs" | wc -l | tr -d ' ')
   [ "$n" -gt 8 ] && echo "    ... ($n total)"
   echo ""
   echo "CLAUDE.md (Waiting on jobs): submit, then launch the waiter IN THE BACKGROUND —"
-  echo "    scripts/remote.sh \"POLL=30 scripts/wait_for_slurm.sh <jid> [<jid> ...]\"   # run_in_background: true"
-  echo "Do NOT promise 'I'll report when they land' without that mechanism, and do NOT hand-poll squeue."
-  echo "Reading runs/_logs/*.out while a job runs is a local file op and is always fine."
+  echo "    a background shell (run_in_background) that repeats \`site poll <run>\` every"
+  echo "    30-60 s until the state is terminal, then reads \`site logs <run>\`;"
+  echo "    or a persistent Monitor listing the run id(s) in .claude/.slurm_monitor_jobs."
+  echo "Do NOT promise 'I'll report when they land' without that mechanism, and do NOT hand-poll."
   echo ""
   echo "If the jobs are genuinely fire-and-forget: touch .claude/.no_waiter_needed and stop again."
 } >&2

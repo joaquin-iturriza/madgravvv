@@ -21,7 +21,7 @@ The background used for fitting is HPO_BG, which the autoencoder never saw eithe
 whole chain stays clean: fit on HPO_TRAIN, select on HPO_VAL, fit the ranking statistic
 and measure the rate on disjoint halves of HPO_BG.
 
-  scripts/remote.sh sbatch jobs/job_lr.sh scripts/fit_lr.py --background data_cache/background
+  site submit <site> madgrav jobs/job_lr.sh -- scripts/fit_lr.py --background data_cache/background
 """
 
 from __future__ import annotations

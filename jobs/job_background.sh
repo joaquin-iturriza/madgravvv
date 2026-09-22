@@ -1,15 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=madgrav_bg
-#SBATCH --partition=gpu_v100
-#SBATCH --qos=gpu
-#SBATCH --account=lpnhe
-#SBATCH --gres=gpu:v100:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
 #SBATCH --time=24:00:00
 #SBATCH --output=runs/_logs/%x_%j.out
 #SBATCH --error=runs/_logs/%x_%j.out
+#SBATCH --gres=gpu:1
 # Time-slide background for one configuration.
 #
 # READ THIS BEFORE EDITING: the background must be scored by the SAME selection the
@@ -22,8 +18,10 @@
 # GPU, not CPU: the upstream README is explicit that the GPU forward pass is the
 # calibrated path and CPU forward is not byte-identical. FAR runs are GPU-only.
 set -e
-PROJ=/sps/lpnhe/jiturrizaramirez01/madgrav
-PY=$PROJ/.venv/bin/python
+_CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
+source "$_CCORCH_ROOT/sites/activate.sh"
+PROJ="$PROJECT_DIR"
+PY=python                       # env activated by sites/activate.sh
 cd "$PROJ"
 mkdir -p runs/_logs
 

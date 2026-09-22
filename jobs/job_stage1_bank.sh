@@ -1,15 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=madgrav_stage1
-#SBATCH --partition=gpu_v100
-#SBATCH --qos=gpu
-#SBATCH --account=lpnhe
-#SBATCH --gres=gpu:v100:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=40G
 #SBATCH --time=04:00:00
 #SBATCH --output=runs/_logs/%x_%j.out
 #SBATCH --error=runs/_logs/%x_%j.out
+#SBATCH --gres=gpu:1
 # Stage-1 self-supervised CAE on the precomputed tile bank.
 #
 # This is the second half of the section 3.4 reproduction gate: a reimplemented stage-1
@@ -22,8 +18,10 @@
 #   scripts/remote.sh sbatch jobs/job_stage1_bank.sh
 #   scripts/remote.sh sbatch jobs/job_stage1_bank.sh model.objective=masked
 set -e
-PROJ=/sps/lpnhe/jiturrizaramirez01/madgrav
-PY=$PROJ/.venv/bin/python
+_CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
+source "$_CCORCH_ROOT/sites/activate.sh"
+PROJ="$PROJECT_DIR"
+PY=python                       # env activated by sites/activate.sh
 cd "$PROJ"
 mkdir -p runs/_logs
 

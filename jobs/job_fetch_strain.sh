@@ -1,10 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=madgrav_fetch
-#SBATCH --partition=htc
-#SBATCH --account=lpnhe
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
 #SBATCH --time=12:00:00
 #SBATCH --output=runs/_logs/%x_%j.out
 #SBATCH --error=runs/_logs/%x_%j.out
@@ -27,13 +24,15 @@
 #
 # Usage: scripts/remote.sh sbatch jobs/job_fetch_strain.sh [extra args]
 set -e
-PROJ=/sps/lpnhe/jiturrizaramirez01/madgrav
-PY=$PROJ/.venv/bin/python
+_CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
+source "$_CCORCH_ROOT/sites/activate.sh"
+PROJ="$PROJECT_DIR"
+PY=python                       # env activated by sites/activate.sh
 cd "$PROJ"
 mkdir -p runs/_logs data_cache/strain
 
 echo "=== madgrav strain fetch on $(hostname) | args: $* ==="
-df -h /sps/lpnhe | tail -1
+df -h "$WORK" | tail -1
 $PY -u scripts/fetch_strain.py --jobs 2 "$@"
 echo "=== cache now ==="
 ls data_cache/strain/*.npz 2>/dev/null | wc -l

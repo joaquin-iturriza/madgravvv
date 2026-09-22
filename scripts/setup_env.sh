@@ -3,7 +3,7 @@
 # but building once on a login node keeps runs to a pure read).
 #
 #   ssh ccin2p3
-#   cd /sps/lpnhe/jiturrizaramirez01/madgrav && bash scripts/setup_env.sh
+#   cd $PROJECT_DIR && bash scripts/setup_env.sh
 #
 # THE ONE THING THAT MATTERS HERE: the torch wheel must ship sm_70 (Volta), or nothing
 # runs on the gpu_v100 partition. The current default PyPI wheel is CUDA 13, which
@@ -21,7 +21,7 @@
 # The venv is built from the anaconda module's python, which has a proper rpath, so
 # calling .venv/bin/python later needs no `module load`.
 set -euo pipefail
-PROJ="${PROJ:-/sps/lpnhe/jiturrizaramirez01/madgrav}"
+PROJ="${PROJ:-$PROJECT_DIR}"
 cd "$PROJ"
 
 # `module` is a shell function, and a non-interactive `ssh host 'bash script.sh'` does

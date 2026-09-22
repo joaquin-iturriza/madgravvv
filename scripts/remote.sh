@@ -21,7 +21,7 @@
 #                CCIN2P3_PROJ (remote project dir).
 set -euo pipefail
 HOST="${CCIN2P3_HOST:-ccin2p3}"
-PROJ="${CCIN2P3_PROJ:-/sps/lpnhe/jiturrizaramirez01/madgrav}"
+PROJ="${CCIN2P3_PROJ:-$PROJECT_DIR}"
 
 if [ "$#" -eq 0 ]; then
   echo "usage: scripts/remote.sh <command to run in project dir on the cluster>" >&2

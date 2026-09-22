@@ -1,15 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=madgrav_demo_gate
-#SBATCH --partition=gpu_v100
-#SBATCH --qos=gpu
-#SBATCH --account=lpnhe
-#SBATCH --gres=gpu:v100:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
 #SBATCH --time=00:30:00
 #SBATCH --output=runs/_logs/%x_%j.out
 #SBATCH --error=runs/_logs/%x_%j.out
+#SBATCH --gres=gpu:1
 # THE REPRODUCTION GATE (improvement plan section 3.4). Nothing else starts until this
 # passes. It recovers GW190521 from the ~256 s segment bundled with the upstream repo,
 # using the vendored weights, and must produce:
@@ -32,8 +28,10 @@
 #
 # Usage: sbatch jobs/job_demo_gate.sh
 set -e
-PROJ=/sps/lpnhe/jiturrizaramirez01/madgrav
-PY=$PROJ/.venv/bin/python
+_CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
+source "$_CCORCH_ROOT/sites/activate.sh"
+PROJ="$PROJECT_DIR"
+PY=python                       # env activated by sites/activate.sh
 cd "$PROJ"
 mkdir -p runs/_logs runs/demo_gate
 

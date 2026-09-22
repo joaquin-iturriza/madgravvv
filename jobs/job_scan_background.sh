@@ -1,15 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=madgrav_bgscan
-#SBATCH --partition=gpu_v100
-#SBATCH --account=lpnhe
-#SBATCH --qos=gpu
-#SBATCH --gres=gpu:v100:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
 #SBATCH --time=06:00:00
 #SBATCH --output=runs/_logs/%x_%A_%a.out
 #SBATCH --error=runs/_logs/%x_%A_%a.out
+#SBATCH --gres=gpu:1
 # Background scan: CPU pool builds tiles, GPU scores them.
 #
 # Both resources are needed at once and neither partition alone is right. The
@@ -21,12 +17,14 @@
 #   scripts/remote.sh sbatch --array=0-3 jobs/job_scan_background.sh \
 #       --checkpoint runs/madgrav/<run>/models/model_best.pt
 set -e
-PROJ=/sps/lpnhe/jiturrizaramirez01/madgrav
+_CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
+source "$_CCORCH_ROOT/sites/activate.sh"
+PROJ="$PROJECT_DIR"
 cd "$PROJ"
 mkdir -p runs/_logs data_cache/background
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 echo "=== madgrav background scan on $(hostname) | shard ${SLURM_ARRAY_TASK_ID:-0}/${SLURM_ARRAY_TASK_COUNT:-1} | args: $* ==="
-$PROJ/.venv/bin/python -u scripts/scan_background.py \
+python -u scripts/scan_background.py \
     --workers "${SLURM_CPUS_PER_TASK:-16}" \
     --shard "${SLURM_ARRAY_TASK_ID:-0}" \
     --n-shards "${SLURM_ARRAY_TASK_COUNT:-1}" "$@"

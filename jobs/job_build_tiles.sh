@@ -1,10 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=madgrav_tiles
-#SBATCH --partition=htc
-#SBATCH --account=lpnhe
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=48G
 #SBATCH --time=02:00:00
 #SBATCH --output=runs/_logs/%x_%j.out
 #SBATCH --error=runs/_logs/%x_%j.out
@@ -21,8 +18,10 @@
 #   scripts/remote.sh sbatch jobs/job_build_tiles.sh --split hpo_val --n-tiles 2000 \
 #       --out data_cache/tiles/val
 set -e
-PROJ=/sps/lpnhe/jiturrizaramirez01/madgrav
-PY=$PROJ/.venv/bin/python
+_CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
+source "$_CCORCH_ROOT/sites/activate.sh"
+PROJ="$PROJECT_DIR"
+PY=python                       # env activated by sites/activate.sh
 cd "$PROJ"
 mkdir -p runs/_logs
 
@@ -30,7 +29,7 @@ mkdir -p runs/_logs
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 
 echo "=== madgrav tile build on $(hostname) | cores=${SLURM_CPUS_PER_TASK} | args: $* ==="
-df -h /sps/lpnhe | tail -1
+df -h "$WORK" | tail -1
 $PY -u scripts/build_tile_cache.py --workers "${SLURM_CPUS_PER_TASK:-16}" "$@"
 echo "=== banks ==="
 du -sh data_cache/tiles/* 2>/dev/null

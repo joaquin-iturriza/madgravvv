@@ -1,0 +1,47 @@
+# Per-site facts for this project. THE ONLY FILE (with sites/activate.sh)
+# THAT NAMES A CLUSTER. Read by siteconf.py; expanded into ${PROJECT_DIR} etc.
+ccin2p3:
+  project_dir: /sps/lpnhe/jiturrizaramirez01/madgrav
+  sweep_dir:   /sps/lpnhe/jiturrizaramirez01/madgrav/sweeps
+  scratch:     /sps/lpnhe/jiturrizaramirez01/tmp
+  data_dir:    /sps/lpnhe/jiturrizaramirez01/madgrav/data_cache
+  cluster:
+    scheduler: slurm
+    partition: gpu_v100
+    account:   lpnhe
+    qos:       gpu
+    gpu_flag:  "--gpus={n}"        # job_submit.lua reads --gpus, dies on typed --gres
+    mem:       32G                 # mandatory here
+    max_cpus_per_gpu: 5
+  cpu:
+    partition: htc
+    account:   lpnhe
+    mem_per_cpu: 2G
+jeanzay:
+  project_dir: /lustre/fswork/projects/rech/itg/ulm49ia/madgrav
+  sweep_dir:   /lustre/fswork/projects/rech/itg/ulm49ia/madgrav/sweeps
+  scratch:     /lustre/fsn1/projects/rech/itg/ulm49ia
+  data_dir:    /lustre/fswork/projects/rech/itg/ulm49ia/madgrav/data_cache
+  cluster:
+    scheduler: slurm
+    account:   itg@v100
+    partition: gpu_p2
+    gpu_flag:  "--gres=gpu:{n}"
+    # no qos, no mem: Jean Zay rejects both
+  cpu:
+    partition: prepost
+    account:   itg@v100
+lxplus:
+  project_dir: /eos/user/j/joiturri/madgrav
+  sweep_dir:   /afs/cern.ch/user/j/joiturri/madgrav/sweeps   # AFS: condor submits + fcntl locks
+  submit_dir:  /afs/cern.ch/user/j/joiturri/madgrav
+  results_dir: /eos/user/j/joiturri/madgrav/sweeps
+  scratch:     /eos/user/j/joiturri/tmp
+  data_dir:    /eos/user/j/joiturri/madgrav/data_cache
+  cluster:
+    scheduler: htcondor
+    flavour:   tomorrow
+    mem:       32G
+local:
+  cluster:
+    scheduler: none

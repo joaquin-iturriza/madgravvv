@@ -60,6 +60,63 @@ def bench(model, device, batch, channels, size, steps=30, warmup=5,
     return steps * batch / dt, peak, dt / steps
 
 
+def score_check(args, device) -> int:
+    """How much does autocast move the anomaly score, and where?
+
+    A mean shift is harmless -- everything downstream is a rank against a background
+    scored the same way. What would not be harmless is REORDERING in the extreme tail,
+    because the false-alarm threshold at 1/yr sits on a couple of background triggers
+    out of 1e8 and a swap there moves the threshold itself.
+    """
+    import glob
+
+    from scipy.stats import spearmanr
+
+    blob = torch.load(args.score_check, map_location="cpu", weights_only=False)
+    state = blob["model"] if isinstance(blob, dict) and "model" in blob else blob
+    model = BaselineCAE()
+    model.load_state_dict(state, strict=True)
+    model = model.eval().to(device)
+
+    files = sorted(glob.glob(args.tiles))
+    if not files:
+        print(f"no tiles at {args.tiles}", file=sys.stderr)
+        return 1
+    import numpy as np
+
+    x = np.concatenate([np.load(f)["x"] for f in files])
+    print(f"{len(x)} tiles from {len(files)} shard(s), checkpoint {args.score_check}")
+
+    def score(amp, channels_last):
+        out = []
+        m = model.to(memory_format=torch.channels_last) if channels_last else model
+        with torch.no_grad():
+            for i in range(0, len(x), 256):
+                t = torch.from_numpy(x[i:i + 256]).to(device)
+                if channels_last:
+                    t = t.to(memory_format=torch.channels_last)
+                with torch.amp.autocast("cuda", dtype=torch.float16, enabled=amp):
+                    out.append(m.reconstruction_error(t, reduction="none")
+                               .float().cpu().numpy())
+        return np.concatenate(out)
+
+    ref = score(False, False)
+    for label, amp, cl in (("AMP fp16", True, False), ("AMP + channels_last", True, True)):
+        got = score(amp, cl)
+        rel = np.abs(got - ref) / np.maximum(np.abs(ref), 1e-30)
+        rho = spearmanr(ref, got).statistic
+        # the top 100 are what a deep-tail threshold is actually read off
+        top_ref = set(np.argsort(ref)[-100:])
+        top_got = set(np.argsort(got)[-100:])
+        print(f"\n{label}")
+        print(f"  relative error: median {np.median(rel):.2e}, "
+              f"99th {np.percentile(rel, 99):.2e}, max {rel.max():.2e}")
+        print(f"  Spearman rank correlation with fp32: {rho:.8f}")
+        print(f"  top-100 membership preserved: {len(top_ref & top_got)}/100")
+        print(f"  loudest tile is the same: {np.argmax(ref) == np.argmax(got)}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -69,6 +126,13 @@ def main() -> int:
     ap.add_argument("--channels", type=int, default=1)
     ap.add_argument("--bank", type=int, default=20000,
                     help="tiles per epoch, for the epochs/hour column")
+    ap.add_argument("--score-check", type=Path, default=None,
+                    help="a checkpoint. Scores real tiles in fp32 and under autocast "
+                         "and reports how far apart the two are, INCLUDING in the tail "
+                         "that sets a false-alarm threshold. This is the question that "
+                         "decides whether scoring may ever be autocast; throughput "
+                         "cannot answer it.")
+    ap.add_argument("--tiles", default="data_cache/tiles/val/*.npz")
     args = ap.parse_args()
 
     if not torch.cuda.is_available():
@@ -78,6 +142,9 @@ def main() -> int:
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cudnn.benchmark = True
+
+    if args.score_check:
+        return score_check(args, device)
 
     name = torch.cuda.get_device_name(device)
     total = torch.cuda.get_device_properties(device).total_memory / 2**30

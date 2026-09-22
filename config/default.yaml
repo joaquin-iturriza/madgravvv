@@ -67,6 +67,12 @@ training:
   clip_grad_norm: 5
   dtype: float32
   allow_tf32: true         # no-op on V100; ~2x matmul on H100 at ~1e-3 precision
+  # fp16 autocast + channels_last, TRAINING ONLY. Measured 1.9x on a V100 with lower
+  # peak memory (scripts/bench_throughput.py). Off by default until the paired
+  # measurement shows it does not move efficiency at fixed FAR by more than the seed
+  # spread. Scoring is never autocast: the scans are Q-transform bound, so there is no
+  # speed to gain, and the deep tail is the worst place to change numerics for free.
+  amp: false
   fused_optimizer: true
 
 defaults:

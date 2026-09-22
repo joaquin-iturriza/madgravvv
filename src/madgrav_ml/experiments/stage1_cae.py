@@ -163,6 +163,10 @@ class Stage1CAEExperiment(BaseExperiment):
         self.model = BaselineCAE(
             in_channels=self.spec.n_channels, dropout=self.cfg.model.dropout
         ).to(self.device)
+        if self.cfg.training.get("amp", False) and self.device.type == "cuda":
+            # channels_last only pays once fp16 tensor cores are engaged -- on its own
+            # it measured SLOWER (0.9x). The two go together or not at all.
+            self.model = self.model.to(memory_format=torch.channels_last)
         if self.cfg.model.get("init_from", None):
             state = torch.load(self.cfg.model.init_from, map_location=self.device,
                                weights_only=False)

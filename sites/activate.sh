@@ -20,21 +20,25 @@ case "$CCORCH_SITE" in
     export WORK="${WORK:-/sps/lpnhe/jiturrizaramirez01}"
     export SCRATCH="${SCRATCH:-/sps/lpnhe/jiturrizaramirez01/tmp}"
     export DATA_DIR="${DATA_DIR:-/sps/lpnhe/jiturrizaramirez01/madgrav/data_cache}"
+    export SUBMIT_DIR="${SUBMIT_DIR:-/sps/lpnhe/jiturrizaramirez01/madgrav}"
     ;;
   jeanzay)
     source "$PROJECT_DIR/.venv/bin/activate"
     export WORK="${WORK:-/lustre/fswork/projects/rech/itg/ulm49ia}"
     export SCRATCH="${SCRATCH:-/lustre/fsn1/projects/rech/itg/ulm49ia}"
     export DATA_DIR="${DATA_DIR:-/lustre/fswork/projects/rech/itg/ulm49ia/madgrav/data_cache}"
+    export SUBMIT_DIR="${SUBMIT_DIR:-/lustre/fswork/projects/rech/itg/ulm49ia/madgrav}"
     ;;
   lxplus)
     source "$PROJECT_DIR/.venv/bin/activate"
     export WORK="${WORK:-/eos/user/j/joiturri}"
     export SCRATCH="${SCRATCH:-/eos/user/j/joiturri/tmp}"
     export DATA_DIR="${DATA_DIR:-/eos/user/j/joiturri/madgrav/data_cache}"
+    export SUBMIT_DIR="${SUBMIT_DIR:-/afs/cern.ch/user/j/joiturri/madgrav}"
     ;;
   *)
     [ -d "$PROJECT_DIR/.venv" ] && source "$PROJECT_DIR/.venv/bin/activate"
     export DATA_DIR="${DATA_DIR:-$PROJECT_DIR/data}"
+    export SUBMIT_DIR="${SUBMIT_DIR:-$PROJECT_DIR}"
     ;;
 esac

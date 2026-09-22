@@ -14,8 +14,8 @@
 # over 16 cores.
 #
 # Usage:
-#   scripts/remote.sh sbatch jobs/job_build_tiles.sh
-#   scripts/remote.sh sbatch jobs/job_build_tiles.sh --split hpo_val --n-tiles 2000 \
+#   site submit <site> madgrav jobs/job_build_tiles.sh
+#   site submit <site> madgrav jobs/job_build_tiles.sh --split hpo_val --n-tiles 2000 \
 #       --out data_cache/tiles/val
 set -e
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"

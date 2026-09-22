@@ -8,7 +8,7 @@
 # Time slides + FAR curve. Pure numpy over the cached score series, so CPU only -- the
 # expensive part (the Q-transform) was paid by the background scan.
 #
-#   scripts/remote.sh sbatch jobs/job_far.sh scripts/far_curve.py --n-lags 7000
+#   site submit <site> madgrav jobs/job_far.sh scripts/far_curve.py --n-lags 7000
 set -e
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
 source "$_CCORCH_ROOT/sites/activate.sh"

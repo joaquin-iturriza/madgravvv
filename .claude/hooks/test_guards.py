@@ -140,23 +140,23 @@ def main():
 
         print("hpo_guard (C4: an HP array has no fold record)")
         check("sbatch of a margin grid", "hpo_guard.sh",
-              bash(f"scripts/remote.sh sbatch {rel_grid}"), True)
+              bash(f"site submit <site> madgrav {rel_grid}"), True)
         check("sbatch of a seed/objective ablation array", "hpo_guard.sh",
-              bash(f"scripts/remote.sh sbatch {rel_abl}"), False)
+              bash(f"site submit <site> madgrav {rel_abl}"), False)
         check("the committed seed array", "hpo_guard.sh",
-              bash("scripts/remote.sh sbatch jobs/job_seeds.sh exp_type=stage1"), False)
+              bash("site submit <site> madgrav jobs/job_seeds.sh exp_type=stage1"), False)
         check("a plain single job", "hpo_guard.sh",
-              bash("scripts/remote.sh sbatch jobs/job_stage1.sh seed=42"), False)
+              bash("site submit <site> madgrav jobs/job_stage1.sh seed=42"), False)
 
         print("plot_guard (a run configured with plotting off)")
         check("run.py override", "plot_guard.sh",
-              bash(f"scripts/remote.sh sbatch jobs/job_stage1.sh {OFF}"), True)
+              bash(f"site submit <site> madgrav jobs/job_stage1.sh {OFF}"), True)
         check("Write of a config carrying it", "plot_guard.sh",
               write(f"{REPO}/config/x.yaml", "plot: false\n"), True)
         check("grepping FOR the flag (cleanup must stay possible)", "plot_guard.sh",
               bash(f"grep -rn {OFF} ."), False)
         check("a normal run", "plot_guard.sh",
-              bash("scripts/remote.sh sbatch jobs/job_stage1.sh seed=42"), False)
+              bash("site submit <site> madgrav jobs/job_stage1.sh seed=42"), False)
 
         print("md_guard (a new doc bypasses ExperimentRecord)")
         check("a new findings doc", "md_guard.sh",

@@ -9,8 +9,7 @@
 # an upstream exist. Failures are non-fatal (exit 0) so it never blocks -- but they print
 # git's ACTUAL stderr, never a bare "FAILED": a swallowed error here once hid 123 unpushed
 # commits for 27 days (no known_hosts entry for github.com), which is exactly the failure a
-# silent hook is worst at. If the local push fails and scripts/remote.sh exists, retry from
-# the cluster login node, which is the same repo over sshfs and may hold working credentials.
+# silent hook is worst at.
 set -uo pipefail
 REPO="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$REPO" 2>/dev/null || exit 0
@@ -28,14 +27,9 @@ git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' | while
     if [ "${ahead:-0}" -gt 0 ]; then
       if err=$(git -C "$wt" push --quiet 2>&1); then
         echo "[auto-push] $br: pushed $ahead commit(s) to origin"
-      elif [ -x "$REPO/scripts/remote.sh" ] && err2=$("$REPO/scripts/remote.sh" \
-              "git -C '$wt' push --quiet" 2>&1); then
-        echo "[auto-push] $br: local push failed, pushed $ahead commit(s) via scripts/remote.sh"
-        echo "[auto-push]   local error was: ${err:-(no output)}"
       else
         echo "[auto-push] $br: push of $ahead commit(s) FAILED -- commits are NOT on origin"
         echo "[auto-push]   local:  ${err:-(no output)}"
-        [ -n "${err2:-}" ] && echo "[auto-push]   remote: ${err2}"
       fi
     fi
   else

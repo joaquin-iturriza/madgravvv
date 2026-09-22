@@ -63,7 +63,7 @@ class CachedTileDataset(Dataset):
         if not self.paths:
             raise ValueError(
                 "CachedTileDataset got no shards. Build the bank first: "
-                "scripts/remote.sh sbatch jobs/job_build_tiles.sh"
+                "site submit <site> madgrav jobs/job_build_tiles.sh"
             )
 
         xs, ys = [], []

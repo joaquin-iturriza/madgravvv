@@ -10,7 +10,7 @@
 # GPU forward pass is the calibrated path for the frozen weights and CPU is not
 # byte-identical -- a comparison against those weights must run where they are calibrated.
 #
-#   scripts/remote.sh sbatch jobs/job_compare.sh --checkpoint <run>/models/model_best.pt
+#   site submit <site> madgrav jobs/job_compare.sh --checkpoint <run>/models/model_best.pt
 set -e
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
 source "$_CCORCH_ROOT/sites/activate.sh"

@@ -262,7 +262,7 @@ class SegmentReader:
         if not path.exists():
             raise FileNotFoundError(
                 f"{path} is not cached. Warm the cache first: "
-                f"scripts/remote.sh sbatch jobs/job_fetch_strain.sh"
+                f"site submit <site> madgrav jobs/job_fetch_strain.sh"
             )
         with np.load(path) as z:
             arr = np.asarray(z["strain"], dtype=np.float32)

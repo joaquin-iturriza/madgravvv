@@ -56,8 +56,8 @@ python run.py --config-name=stage2 model.init_from=runs/madgrav/<run>/models/mod
 On the cluster, submit rather than running directly:
 
 ```bash
-scripts/remote.sh sbatch jobs/job_stage1.sh model.objective=masked
-scripts/remote.sh sbatch jobs/job_seeds.sh exp_type=stage1   # 3 seeds
+site submit <site> madgrav jobs/job_stage1.sh model.objective=masked
+site submit <site> madgrav jobs/job_seeds.sh exp_type=stage1   # 3 seeds
 ```
 
 A run executes `init_physics → init_folds → init_data → init_model → train → evaluate

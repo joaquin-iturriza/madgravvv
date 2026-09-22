@@ -669,7 +669,7 @@ the gate invalidates every previously generated slide.
 | `src/madgrav_ml/plotting/` | `style.save_figure` (both formats, one call) and the standard figure set |
 | `config/` | Hydra tree: `default`, `model/`, `data/`, `representation/`, `local/`, `param_budget.yaml` |
 | `sites/` | `sites.yaml` (per-site paths, scheduler flags, env recipe) and `activate.sh` (runtime site resolution); `siteconf.py` at the root reads them |
-| `scripts/` | `job_probe.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py`, `fold_worktree.sh`, `publish_main.sh` (plus `remote.sh` / `wait_for_slurm.sh`, kept only for the `slurm_waiter_guard` hook — never call them yourself) |
+| `scripts/` | `job_probe.sh`, `setup_env.sh`, `vendor_reference.sh`, `measure_param_budget.py`, `fold_worktree.sh`, `publish_main.sh` |
 | `jobs/` | SLURM job scripts, site-agnostic: job-owned `#SBATCH` lines only, the `sites/activate.sh` preamble, Hydra overrides passed through |
 | `tests/` | pytest suite (fold guard, FAR arithmetic, efficiency, budget, sweep leakage, plotting, vendored weights, **representation fidelity vs upstream**, injections) |
 | `docs/results.tex` | the lab notebook; `docs/improvement-plan.md` (gitignored) the plan |
@@ -791,7 +791,7 @@ what it already cost.
 | `plot_guard` | Bash/Write | configuring a run with plotting off. The plots are the diagnostics no scalar shows; a run that trained fine without them has to be repeated |
 | `figure_pair_guard` | Stop | a figure written this session existing in only one of `.png`/`.pdf` |
 | `worktree_fold_guard` | Bash | removing a worktree whose gitignored results — including `fold_audit.jsonl` and `summary.json` — exist nowhere else. Fold with `scripts/fold_worktree.sh` first |
-| `slurm_waiter_guard` | Stop | ending a turn with jobs queued and no background waiter. Checks the CC-IN2P3 queue (through `scripts/remote.sh`, its one remaining use) and **fails open** on any ssh problem |
+| `slurm_waiter_guard` | Stop | ending a turn with jobs queued and no background waiter. Checks the `site` registry across all sites and **fails open** on any ssh problem |
 | `block_memory`, `worktree_guard`, `commit_checkpoint`, `auto_push` | — | persistent memory, trunk-edit reminder, the commit checkpoint, the push |
 
 `python3 .claude/hooks/test_guards.py` is the self-test for all of the above, and it is

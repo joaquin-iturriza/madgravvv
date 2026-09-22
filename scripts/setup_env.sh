@@ -26,7 +26,7 @@ cd "$PROJ"
 
 # `module` is a shell function, and a non-interactive `ssh host 'bash script.sh'` does
 # not source the profile that defines it. Source it explicitly so this works both when
-# run by hand on a login node and when driven through scripts/remote.sh.
+# run by hand on a login node and when driven by `site env`.
 if ! command -v module >/dev/null 2>&1; then
   # shellcheck disable=SC1091
   . /etc/profile.d/modules.sh

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # wait_for_slurm.sh — block cheaply until the given SLURM job(s) leave the queue, then
 # print their final state and a tail of each log. Run this ON the cluster, via
-# scripts/remote.sh, in the background:
+# the site (site run <site> madgrav -- ...), in the background:
 #
-#   jid=$(scripts/remote.sh sbatch --parsable jobs/job_stage1.sh)
+#   jid=$(site submit <site> madgrav jobs/job_stage1.sh)
 #   site run <site> madgrav -- POLL=30 scripts/wait_for_slurm.sh $jid    # run_in_background
 #
 # With no job id it waits on all of the caller's jobs. Never poll this from the

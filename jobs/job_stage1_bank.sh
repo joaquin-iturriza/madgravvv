@@ -15,8 +15,8 @@
 # poisons everything downstream.
 #
 # Usage:
-#   scripts/remote.sh sbatch jobs/job_stage1_bank.sh
-#   scripts/remote.sh sbatch jobs/job_stage1_bank.sh model.objective=masked
+#   site submit <site> madgrav jobs/job_stage1_bank.sh
+#   site submit <site> madgrav jobs/job_stage1_bank.sh model.objective=masked
 set -e
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
 source "$_CCORCH_ROOT/sites/activate.sh"

@@ -14,7 +14,7 @@
 # README is explicit that the GPU forward is the calibrated path for the frozen weights,
 # so any number meant to be comparable with them has to be produced on one.
 #
-#   scripts/remote.sh sbatch --array=0-3 jobs/job_scan_background.sh \
+#   site submit <site> madgrav jobs/job_scan_background.sh [array: --array=0-3] \
 #       --checkpoint runs/madgrav/<run>/models/model_best.pt
 set -e
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"

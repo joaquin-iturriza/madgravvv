@@ -11,7 +11,7 @@
 # the partition as jobs/job_scan_background.sh -- CPU pool for the Q-transform, GPU for
 # the calibrated forward pass.
 #
-#   scripts/remote.sh sbatch jobs/job_scan_injections.sh \
+#   site submit <site> madgrav jobs/job_scan_injections.sh \
 #       --checkpoint runs/madgrav/<run>/models/model_best.pt --n-injections 4000
 set -e
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"

@@ -10,8 +10,8 @@
 # the operating point that the searched hyperparameters are then tuned around; it is not
 # itself a hyperparameter sweep.
 #
-#   scripts/remote.sh sbatch jobs/job_bench.sh
-#   scripts/remote.sh sbatch jobs/job_bench.sh --channels 2 --size 512 256
+#   site submit <site> madgrav jobs/job_bench.sh
+#   site submit <site> madgrav jobs/job_bench.sh --channels 2 --size 512 256
 set -e
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
 source "$_CCORCH_ROOT/sites/activate.sh"

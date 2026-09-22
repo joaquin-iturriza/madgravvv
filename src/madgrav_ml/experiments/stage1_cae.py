@@ -111,7 +111,7 @@ class Stage1CAEExperiment(BaseExperiment):
         if not have:
             raise FileNotFoundError(
                 f"none of the {len(segments)} segments are cached under {cache}. "
-                f"Warm it first: scripts/remote.sh sbatch jobs/job_fetch_strain.sh"
+                f"Warm it first: site submit <site> madgrav jobs/job_fetch_strain.sh"
             )
         if missing:
             # Loud, not silent: training on a fraction of the fold you think you have is

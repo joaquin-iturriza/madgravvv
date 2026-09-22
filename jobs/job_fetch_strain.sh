@@ -22,7 +22,7 @@
 # recovery procedure. Training fold only by default -- see scripts/fetch_strain.py for
 # why not downloading the evaluation fold is the cheapest enforcement of C4.
 #
-# Usage: scripts/remote.sh sbatch jobs/job_fetch_strain.sh [extra args]
+# Usage: site submit <site> madgrav jobs/job_fetch_strain.sh [extra args]
 set -e
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
 source "$_CCORCH_ROOT/sites/activate.sh"

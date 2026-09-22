@@ -13,7 +13,7 @@ the background off HPO_VAL would be quietly optimistic, because the stage-2 chec
 is chosen to maximise detections above a threshold set by HPO_VAL's own noise. The
 evaluation fold is not touched here and stays sealed until there is a report to write.
 
-  scripts/remote.sh sbatch --array=0-3 jobs/job_scan_background.sh \
+  site submit <site> madgrav jobs/job_scan_background.sh [array: --array=0-3] \
       --checkpoint runs/madgrav/<run>/models/model_best.pt
 """
 
